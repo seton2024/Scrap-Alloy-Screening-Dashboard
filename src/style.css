@@ -1,0 +1,553 @@
+/*
+* Aluminum Alloy Screening Dashboard — main.css (shared skeleton)
+* Owner: Both · Branch: shared-skeleton
+* Design tokens (Wong/Okabe-Ito palette, spacing, type) per
+* docs/nested_model_L1_L2_L3_L4_report.md §3.2.1 and project_schedule.md
+* "Shared CSS tokens" pre-coding checklist item.
+*/
+
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
+
+:root {
+    /* Wong / Okabe-Ito 7-family palette (colorblind-safe) */
+    --color-ks1295: #E69F00;
+    --color-6082:   #56B4E9;
+    --color-2024:   #009E73;
+    --color-batbox: #0072B2;
+    --color-3003:   #D55E00;
+    --color-4032:   #CC79A7;
+    --color-mixed:  #888888;
+
+    /* project constraint lines (never reuse family hues, §3.2.2) */
+    --color-constraint: #222222;
+
+    /* alert channels */
+    --color-danger:  #C1121F;
+    --color-warning: #E69F00;
+    --color-success: #1E8E3E;
+
+    /* type */
+    --font-base: "Inter", -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+
+    /* spacing scale (base unit 8px) */
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 16px;
+    --space-4: 24px;
+    --space-5: 32px;
+
+    /* chrome */
+    --page-bg:     #f4f5f7;
+    --panel-bg:    #ffffff;
+    --canvas-bg:   #ffffff;
+    --border-color:#d8dadd;
+    --text-color:  #1f2328;
+    --text-muted:  #6b7280;
+    --radius:      6px;
+}
+
+* { box-sizing: border-box; }
+
+/* Guarantee [hidden] always wins: several rules below (e.g. `.view-body
+   canvas`, `.view-placeholder`) set an explicit `display` at equal or
+   higher specificity than the UA default `[hidden]{display:none}`, which
+   would otherwise silently keep JS-hidden elements visible. */
+[hidden] { display: none !important; }
+
+body {
+    height: 100%;
+    margin: 0;
+    font: 14px/1.4 var(--font-base);
+    color: var(--text-color);
+    background: var(--page-bg);
+}
+
+h1, h2, h3, h4 { font-family: var(--font-base); margin: 0 0 var(--space-2); }
+
+/* ---------------------------------------------------------------- */
+/* Header bar + T1 legend chips                                      */
+/* ---------------------------------------------------------------- */
+
+#appHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    background: var(--panel-bg);
+    border-bottom: 1px solid var(--border-color);
+}
+
+#headerTitle h1 { font-size: 1.15rem; }
+
+#credits {
+    font: 12px sans-serif;
+    color: var(--text-muted);
+    margin: 0;
+}
+
+.instructions { color: var(--color-danger); }
+.optional { color: darkgreen; }
+
+#projectChips {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex: 1;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.project-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    padding: var(--space-1) var(--space-2);
+    border-radius: 999px;
+    border: 1px solid var(--border-color);
+    background: #fafafa;
+    font-size: 0.8rem;
+    cursor: pointer;
+    /* never narrower than 72px; once a long name pushes it to 90px the name
+       stops growing and truncates with an ellipsis instead */
+    min-width: 72px;
+    max-width: 90px;
+}
+
+.project-chip:hover { background: #eee; }
+
+.project-chip .chip-swatch {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0; /* the swatch keeps its size; only the name shrinks */
+    background: var(--color-constraint);
+}
+
+/* min-width:0 lets a flex child shrink below its content size, which is what
+   actually enables the ellipsis to kick in */
+.project-chip .chip-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+.project-chip.project-b .chip-swatch { background: #666; }
+
+/* ---------------------------------------------------------------- */
+/* Buttons                                                            */
+/* ---------------------------------------------------------------- */
+
+.btn-primary, .btn-secondary {
+    font: 500 0.85rem var(--font-base);
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius);
+    border: 1px solid transparent;
+    cursor: pointer;
+}
+
+.btn-primary {
+    background: var(--color-batbox);
+    color: #fff;
+}
+.btn-primary:hover { background: #005a91; }
+
+.btn-secondary {
+    background: #fff;
+    border-color: var(--border-color);
+    color: var(--text-color);
+}
+.btn-secondary:hover { background: #f0f0f0; }
+
+/* ---------------------------------------------------------------- */
+/* Tab bar                                                            */
+/* ---------------------------------------------------------------- */
+
+#tabBar {
+    display: flex;
+    background: #2b2f33;
+}
+
+.tablink {
+    background-color: transparent;
+    color: #cfd3d8;
+    border: none;
+    outline: none;
+    cursor: pointer;
+    padding: 14px 22px;
+    font: 500 0.9rem var(--font-base);
+    border-bottom: 3px solid transparent;
+}
+
+.tablink:hover { background-color: #383d42; color: #fff; }
+
+.tablink.active {
+    color: #fff;
+    border-bottom-color: var(--color-batbox);
+    background-color: #383d42;
+}
+
+.tabcontent {
+    display: none;
+    padding: var(--space-4);
+}
+
+.tabcontent.active { display: block; }
+
+/* ---------------------------------------------------------------- */
+/* Generic panel                                                     */
+/* ---------------------------------------------------------------- */
+
+.panel {
+    background: var(--panel-bg);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    padding: var(--space-4);
+    margin-bottom: var(--space-4);
+}
+
+/* ---------------------------------------------------------------- */
+/* Loading tab — progress bar ("line filling up the box")            */
+/* ---------------------------------------------------------------- */
+
+.progress-block { margin-top: var(--space-3); }
+
+.progress-step-label {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    margin-bottom: var(--space-2);
+}
+
+.progress-track {
+    position: relative;
+    width: 100%;
+    height: 14px;
+    background: #e5e7eb;
+    border: 1px solid var(--border-color);
+    border-radius: 7px;
+    overflow: hidden;
+}
+
+.progress-fill {
+    position: absolute;
+    left: 0;
+    top: 0;
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, var(--color-batbox), var(--color-2024));
+    border-radius: 7px 0 0 7px;
+    transition: width 0.4s ease;
+}
+
+/* animated stripe while a step is actively running */
+.progress-fill.is-active {
+    background-image: linear-gradient(
+        45deg,
+        rgba(255, 255, 255, 0.28) 25%,
+        transparent 25%,
+        transparent 50%,
+        rgba(255, 255, 255, 0.28) 50%,
+        rgba(255, 255, 255, 0.28) 75%,
+        transparent 75%,
+        transparent
+    );
+    background-size: 28px 28px;
+    animation: progress-stripes 0.9s linear infinite;
+}
+
+.progress-fill.is-complete { background: linear-gradient(90deg, var(--color-2024), var(--color-2024)); }
+
+@keyframes progress-stripes {
+    from { background-position: 0 0; }
+    to   { background-position: 28px 0; }
+}
+
+.progress-steps-count {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-top: var(--space-1);
+    text-align: right;
+}
+
+/* ---------------------------------------------------------------- */
+/* Data preview table + pagination (loading tab, §4.0.2)             */
+/* ---------------------------------------------------------------- */
+
+.dataTableClass {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.78rem;
+}
+
+.tableHeaderClass {
+    border: 1px solid var(--border-color);
+    padding: 5px 8px;
+    background-color: #eef0f2;
+    font-weight: 600;
+    text-transform: uppercase;
+    position: sticky;
+    top: 0;
+}
+
+.tableBodyClass {
+    border: 1px solid var(--border-color);
+    padding: 5px 8px;
+    white-space: nowrap;
+    max-width: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.tableBodyClass:hover { background: rgba(0, 0, 0, 0.06); cursor: default; }
+
+#dataTable { max-height: 60vh; overflow: auto; border: 1px solid var(--border-color); }
+
+.pagination {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin-top: var(--space-3);
+}
+
+.pagination button {
+    font: 500 0.8rem var(--font-base);
+    padding: var(--space-1) var(--space-3);
+    border-radius: var(--radius);
+    border: 1px solid var(--border-color);
+    background: #fff;
+    cursor: pointer;
+}
+
+.pagination button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ---------------------------------------------------------------- */
+/* Dashboard workflow layout: T2 | T3 | T4  +  T5/T6 bottom strip     */
+/* ---------------------------------------------------------------- */
+
+.dashboard-workflow {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: var(--space-4);
+}
+
+/* T2, T3, T4 each occupy their own full-width row */
+.view-t2, .view-t3, .view-t4 { grid-column: 1; min-height: 260px; }
+
+/* T5 + T6 share a single row, side by side */
+.view-strip.view-t5t6 {
+    grid-column: 1;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-4);
+}
+
+.view-panel {
+    position: relative;
+    background: var(--panel-bg);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    display: flex;
+    flex-direction: column;
+    min-height: 340px;
+}
+
+.view-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.view-header h2 { font-size: 0.95rem; flex: 1; }
+
+.view-tag {
+    font: 600 0.7rem var(--font-base);
+    color: var(--text-muted);
+    background: #eef0f2;
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+.view-body {
+    position: relative;
+    flex: 1;
+    padding: var(--space-3);
+    overflow: auto;
+}
+
+.view-body canvas {
+    background: var(--canvas-bg);
+    width: 100%;
+    max-width: 100%;
+    display: block;
+}
+
+/* Explicit CSS display height for the T3 canvas. setupHiDPICanvas overwrites
+   the width/height ATTRIBUTES (the backing store), so the DISPLAY size must
+   be pinned in CSS instead — otherwise the canvas would grow to whatever the
+   backing-store height happens to be. */
+#canvasT3 { height: 360px; }
+
+/* placeholder state shown until session.loaded === true (§4.0) */
+.view-placeholder {
+    position: absolute;
+    inset: var(--space-3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    border: 1px dashed var(--border-color);
+    border-radius: var(--radius);
+    background: repeating-linear-gradient(
+        45deg,
+        rgba(0, 0, 0, 0.015),
+        rgba(0, 0, 0, 0.015) 8px,
+        transparent 8px,
+        transparent 16px
+    );
+}
+
+/* T3 "see more" secondary attributes */
+#seeMoreBtn { margin-left: auto; }
+
+/* T4 scatter sub-panels + shared legend */
+.shared-legend {
+    display: flex;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    margin-bottom: var(--space-3);
+    font-size: 0.75rem;
+}
+
+/* a row of scatter panels sitting side by side (the 3 defaults, and each
+   batch of added plots). flex-wrap lets them drop to the next line on very
+   narrow screens instead of overflowing. */
+.t4-row {
+    display: flex;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    margin-bottom: var(--space-3);
+}
+
+/* each panel shares the row equally; min-width:0 lets the canvas inside
+   shrink to fit rather than forcing the row wider than its container */
+.t4-row .scatter-panel {
+    flex: 1 1 0;
+    min-width: 0;
+    margin-bottom: 0;
+}
+
+.scatter-panel { margin-bottom: var(--space-3); }
+
+.axis-select {
+    display: flex;
+    gap: var(--space-3);
+    margin-bottom: var(--space-2);
+    font-size: 0.8rem;
+}
+
+/* T5 spider strip */
+.spider-body {
+    display: flex;
+    gap: var(--space-4);
+    align-items: flex-start;
+    flex-wrap: wrap;
+}
+
+.spider-body canvas { width: 320px; height: 320px; max-width: 100%; }
+
+.alert-banner {
+    flex-basis: 100%;
+    order: 2;
+    font-size: 0.85rem;
+    color: var(--color-warning);
+    font-weight: 600;
+}
+
+/* ---------------------------------------------------------------- */
+/* Texture-fill swatches — redundant channel for family hue (§3.2.1) */
+/* ---------------------------------------------------------------- */
+
+.legend-swatch {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    border: 1px solid rgba(0, 0, 0, 0.25);
+    vertical-align: middle;
+}
+
+.texture-ks1295 { background-color: var(--color-ks1295); }
+
+.texture-6082 {
+    background-color: var(--color-6082);
+    background-image: repeating-linear-gradient(0deg, rgba(255,255,255,.55) 0 2px, transparent 2px 5px);
+}
+
+.texture-2024 {
+    background-color: var(--color-2024);
+    background-image: radial-gradient(rgba(255,255,255,.6) 1px, transparent 1.4px);
+    background-size: 5px 5px;
+}
+
+.texture-batbox {
+    background-color: var(--color-batbox);
+    background-image: repeating-linear-gradient(45deg, rgba(255,255,255,.55) 0 2px, transparent 2px 5px);
+}
+
+.texture-3003 {
+    background-color: var(--color-3003);
+    background-image:
+        repeating-linear-gradient(45deg, rgba(255,255,255,.4) 0 2px, transparent 2px 5px),
+        repeating-linear-gradient(-45deg, rgba(255,255,255,.4) 0 2px, transparent 2px 5px);
+}
+
+.texture-4032 {
+    background-color: var(--color-4032);
+    background-image: repeating-linear-gradient(90deg, rgba(255,255,255,.55) 0 2px, transparent 2px 5px);
+}
+
+.texture-mixed {
+    background-color: var(--color-mixed);
+    background-image: radial-gradient(rgba(255,255,255,.5) 1px, transparent 1.2px);
+    background-size: 4px 4px;
+}
+
+/* ---------------------------------------------------------------- */
+/* Misc reused elements (axes, tooltip)                               */
+/* ---------------------------------------------------------------- */
+
+svg { font: 10px sans-serif; }
+
+.axis line, .axis path { fill: none; stroke: #000; shape-rendering: crispEdges; }
+.axis text { fill: black; }
+
+fieldset { border-width: 0; }
+
+div.tooltip {
+    position: absolute;
+    text-align: left;
+    padding: 6px 8px;
+    background: #313639;
+    color: #f9f9f9;
+    border-radius: 8px;
+    pointer-events: none;
+    font-size: 0.7rem;
+    z-index: 50;
+}
+
+.t6-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.t6-table th, .t6-table td { padding: 4px 8px; border-bottom: 1px solid #eee; text-align: left; }
+.t6-table td:not(:first-child) { text-align: right; }
+
+
+.legend-item   { display: inline-flex; align-items: center; gap: 4px; margin: 0 12px 4px 0; font-size: 12px; }
+.legend-swatch { width: 12px; height: 12px; display: inline-block; border-radius: 2px; }
+.shared-legend { margin-bottom: 8px; }
+.t4-row        { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 8px; }
+.scatter-panel { display: flex; flex-direction: column; gap: 4px; }
+.axis-select   { font-size: 11px; color: #333; }

@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<!--
+* Aluminum Alloy Screening Dashboard
+* IEEE SciVis Contest 2025 — Data Visualization, University of Passau
+* GROUP 13 - Syra, Tonoyan
+*
+* (Copyright University of Passau, Chair of Cognitive Sensor Systems).
+-->
+
+<html lang="en">
+<head>
+    <meta charset="Latin-1">
+    <title>Aluminum Alloy Screening Dashboard</title>
+
+    <link rel="stylesheet" type="text/css" href="style.css">
+    <link rel="stylesheet" type="text/css" href="t1_modal.css">
+
+    <!-- include d3 -->
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+
+    <!-- shared cross-view session state (docs/pipeline_contract.md) -->
+    <script src="pipeline.js"></script>
+
+    <!-- data-side helpers (data/ lives one level up, as a sibling of src/) -->
+    <script src="../data/stock_loader.js"></script>
+
+    <!-- per-view components (see docs/project_schedule.md component ownership) -->
+    <script src="loading_tab.js"></script>
+    <script src="t1_modal.js"></script>
+    <script src="t2_umap.js"></script>
+    <script src="t3_violin.js"></script>
+    <script src="t4_filter.js"></script>
+    <script src="t5_spider.js"></script>
+    <script src="t6_table.js"></script>
+</head>
+
+<body onload="init()">
+
+<header id="appHeader">
+    <div id="headerTitle">
+        <h1>Aluminum Alloy Screening Dashboard</h1>
+        <p id="credits">
+            Created by <span class="instructions">GROUP 13 - Syra, Tonoyan</span>
+            for the Data Visualization Lecture at <a href="https://www.fim.uni-passau.de/digitale-bildverarbeitung">Faculty of Computer
+            Science and Mathematics - Chair of Cognitive sensor systems - University of Passau</a>.
+            Dataset: IEEE SciVis Contest 2025.
+        </p>
+    </div>
+
+    <!-- Placeholder for T1 project chips, appear when "Apply" button is clicked (t1_modal.js) -->
+    <div id="projectChips"></div>
+
+     <!-- openProjectModal() in t1_modal.js, switching of hidden attribute in loading_tab.js -->
+    <button id="addProjectBtn" class="btn-primary" onclick="openProjectModal()" hidden>+ Add Project</button>
+</header>
+
+
+<!--  Client Project Setup window T1  -->
+<div id="projectModalOverlay" class="modal-overlay" hidden> <!--openProjectModal() clears hidden-->
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+        <div class="modal-header">
+            <h2 id="modalTitle">Client Project Setup</h2>
+            <button class="modal-close" onclick="closeProjectModal()" aria-label="Close">&times;</button>
+        </div>
+
+        <!-- t1_modal.js fills one or two .project-form columns in here -->
+        <div class="project-forms" id="projectFormArea"></div>
+
+        <!-- reveals the 7 secondary-tier property rows in every form -->
+        <button id="t1SeeMoreBtn" class="btn-secondary" onclick="toggleT1Secondary()">See more (7 secondary properties)</button>
+
+        <button id="addProjectBBtn" class="btn-secondary" onclick="addProjectB()">+ Add Project B</button>
+        <button id="removeProjectBBtn" class="btn-secondary" onclick="removeProjectB()" hidden>&times; Remove Project B</button>
+
+        <div class="modal-actions">
+            <button class="btn-secondary" onclick="closeProjectModal()">Cancel</button>
+            <button id="applyProjectBtn" class="btn-primary" onclick="applyProjects()">Apply</button>
+        </div>
+    </div>
+</div>
+
+
+<!-- Tab bar: Loading (default) -> Dashboard (T1-T6 workflow) -->
+<nav id="tabBar">
+    <button class="tablink" id="defaultOpen" onclick="openPage('Loading', this)">Loading</button>
+    <button class="tablink" onclick="openPage('Dashboard', this)">Dashboard</button>
+</nav>
+
+
+<!-- Loading tab: file upload, progress bar, post-load data preview     -->
+
+<section id="Loading" class="tabcontent">
+
+    <div class="panel">
+        <h2>Load Dataset</h2>
+        <p>Select the alloy dataset file: <input id="upload" type="file"></p>
+
+        <!-- loading animation -->
+        <div id="loadingProgress" class="progress-block">
+            <div class="progress-step-label" id="progressStepLabel">Waiting for a file…</div>
+            <div class="progress-track">
+                <div class="progress-fill" id="progressFill"></div>
+            </div>
+            <div class="progress-steps-count" id="progressStepsCount"></div>
+        </div>
+    </div>
+
+    <div class="panel" id="dataPreviewPanel" hidden> <!-- filled by loading_tab.js -->
+        <h2>Data Preview</h2>
+        <p>Read-only inspection of the full dataset</p>
+        <div id="dataTable"></div>
+        <div class="pagination">
+            <button id="prevPageBtn">Previous</button>
+            <span id="pageCounter">Page 1 of 1</span>
+            <button id="nextPageBtn">Next</button>
+        </div>
+    </div>
+
+</section>
+
+<!-- ================================================================= --><!-- Dashboard tab: T2 | T3 | T4 top row, T5 + T6 bottom strip           -->
+<section id="Dashboard" class="tabcontent">
+    <div class="dashboard-workflow">
+
+        <!-- T2: UMAP overview -->
+        <div class="view-panel view-t2" id="panel-t2">
+            <div class="view-header">
+                <h2>Overview</h2>
+                <span class="view-tag">T2</span>
+            </div>
+            <div class="view-body">
+                <canvas id="canvasT2" width="1100" height="320"></canvas>
+                <div class="view-placeholder" id="placeholderT2">Waiting for data to load…</div>
+            </div>
+        </div>
+
+        <!-- T3: violin plot -->
+        <div class="view-panel view-t3" id="panel-t3">
+            <div class="view-header">
+                <h2>Property Distributions</h2>
+                <span class="view-tag">T3</span>
+                <button id="seeMoreBtn" class="btn-secondary" hidden>See more</button>
+            </div>
+            <div class="view-body">
+                <canvas id="canvasT3" width="1100" height="320"></canvas>
+                <div class="view-placeholder" id="placeholderT3">Waiting for data to load…</div>
+            </div>
+        </div>
+
+        <!-- T4: linked scatter / filter panel -->
+        <div class="view-panel view-t4" id="panel-t4">
+            <div class="view-header">
+                <h2>Filter &amp; Select</h2>
+                <span class="view-tag">T4</span>
+            </div>
+            <div class="view-body">
+                <div id="legendT4" class="shared-legend"></div>
+
+                <!-- the 3 default plots sit next to each other in one row -->
+                <div class="t4-row" id="t4DefaultRow">
+                    <div class="scatter-panel" id="panelT4-1">
+                        <div class="axis-select"><span>YS vs CSC</span></div>
+                        <canvas id="canvasT4-1" width="360" height="240"></canvas>
+                    </div>
+
+                    <div class="scatter-panel" id="panelT4-2">
+                        <div class="axis-select">
+                            <label>X: <select id="t4-2-x"></select></label>
+                            <label>Y: <select id="t4-2-y"></select></label>
+                        </div>
+                        <canvas id="canvasT4-2" width="360" height="240"></canvas>
+                    </div>
+
+                    <div class="scatter-panel" id="panelT4-bar">
+                        <div class="axis-select"><span>Scrap composition</span></div>
+                        <canvas id="canvasT4-bar" width="360" height="240"></canvas>
+                    </div>
+                </div>
+
+                <!-- added plots (max 3) appear here, in a row below the defaults -->
+                <div class="t4-row" id="t4ExtraPlots"></div>
+
+                <button id="addPlotBtn" class="btn-secondary">+ Add plot</button>
+                <div class="view-placeholder" id="placeholderT4">Waiting for data to load…</div>
+            </div>
+        </div>
+
+        <!-- T5 + T6 bottom strip -->
+        <div class="view-strip view-t5t6" id="panel-t5t6">
+
+            <!-- T5: spider chart comparison -->
+            <div class="view-panel view-t5" id="panel-t5">
+                <div class="view-header">
+                    <h2>Compare Candidates</h2>
+                    <span class="view-tag">T5</span>
+                </div>
+                <div class="view-body spider-body">
+                    <canvas id="canvasT5-A" width="320" height="320"></canvas>
+                    <canvas id="canvasT5-B" width="320" height="320" hidden></canvas>
+                    <div id="alertBanner" class="alert-banner"></div> <!-- Alert banner for T5 -->
+                    <div class="view-placeholder" id="placeholderT5">Select up to 4 alloys in T4 to compare.</div>
+                </div>
+            </div>
+
+            <!-- T6: characteristics lookup table -->
+            <div class="view-panel view-t6" id="panel-t6">
+                <div class="view-header">
+                    <h2>Characteristics</h2>
+                    <span class="view-tag">T6</span>
+                </div>
+                <div class="view-body">
+                    <div id="tableT6"></div>
+                    <div class="view-placeholder" id="placeholderT6">Select alloys in T4 to see full details.</div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+</section>
+
+</body>
+</html>
