@@ -539,3 +539,15 @@ div.tooltip {
     font-size: 0.7rem;
     z-index: 50;
 }
+
+.t6-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.t6-table th, .t6-table td { padding: 4px 8px; border-bottom: 1px solid #eee; text-align: left; }
+.t6-table td:not(:first-child) { text-align: right; }
+
+
+.legend-item   { display: inline-flex; align-items: center; gap: 4px; margin: 0 12px 4px 0; font-size: 12px; }
+.legend-swatch { width: 12px; height: 12px; display: inline-block; border-radius: 2px; }
+.shared-legend { margin-bottom: 8px; }
+.t4-row        { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 8px; }
+.scatter-panel { display: flex; flex-direction: column; gap: 4px; }
+.axis-select   { font-size: 11px; color: #333; }
