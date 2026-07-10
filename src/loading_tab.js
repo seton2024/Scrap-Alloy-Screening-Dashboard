@@ -10,6 +10,24 @@
 * until their data/*.npy / *.json outputs exist.
 */
 
+/* ==================================================================
+ * TODO (ARCHITECTURE CHANGE) — loading must become FETCH-ONLY.
+ * ==================================================================
+ * The task list now mandates: "Everything is precomputed. No computation
+ * runs in the browser. Loading = file fetch only." Today this file still
+ * COMPUTES three things at load time on the main thread:
+ *     - computeFamilyLabels()  -> should fetch data/family_labels.npy
+ *     - computeNormTable()     -> should fetch data/norm_table.json
+ *     - computeKdeCache()      -> should fetch data/kde_curves.json
+ * and it SIMULATES the umap / blob / spatial-grid / stock steps with a
+ * setTimeout. The rewrite: each of the 9 steps below becomes a single
+ * fetch() of a precomputed file produced by data/precompute.py (see the
+ * Precompute section of tasks.md — norm_table.json, kde_curves.json and
+ * spatial_grid.json still need to be added there). The "Building quadtree
+ * spatial index" step is replaced by fetching spatial_grid.json.
+ * Until those files exist, the in-browser computation below is a stand-in.
+ * ================================================================== */
+
 // non-ASCII written as \u escapes so the labels render correctly regardless
 // of how the browser guesses this file's text encoding (… = …, × = ×)
 const LOADING_STEPS = [
@@ -99,6 +117,9 @@ function finishParseStep(workerResult) {
     session.rowCount = workerResult.rowCount;
 }
 
+// TODO (architecture change): replace with a fetch of data/norm_table.json.
+// The min/max per column must be precomputed in data/precompute.py, not
+// scanned over the full dataset here at load time.
 function computeNormTable(columns) {
     const table = {};
     for (const col in columns) {
@@ -109,6 +130,10 @@ function computeNormTable(columns) {
     return table;
 }
 
+// TODO (architecture change): replace with a fetch of data/family_labels.npy
+// (Uint8Array). The argmax + ≤2pp Mixed rule already exists in
+// data/precompute.py::compute_family_labels — the browser should just load
+// its output, not recompute it over 324k rows on the main thread.
 // Dominant-scrap classification (report §2.3): each alloy's family is the
 // argmax of its 6 input mixing ratios — UNLESS the top two are within 2
 // percentage points of each other, in which case it's "Mixed" (index 6).
@@ -128,6 +153,11 @@ function computeFamilyLabels(columns, rowCount) {
     return labels;
 }
 
+// TODO (architecture change): the whole KDE block below (gaussianKernel,
+// computeKdeCache, computeOneViolin) must move to data/precompute.py and be
+// emitted as data/kde_curves.json — Scott's rule, 200-point grid, 7 families
+// × 7 primary properties = 49 curves. At load the browser should fetch that
+// JSON into session.kde_cache instead of running the kernel sum here.
 // A Gaussian kernel evaluated at u (report §4.4): (1/√(2π)) e^(−u²/2).
 const INV_SQRT_2PI = 1 / Math.sqrt(2 * Math.PI);
 function gaussianKernel(u) { return INV_SQRT_2PI * Math.exp(-0.5 * u * u); }
@@ -208,6 +238,13 @@ async function runLoadingSequence() {
     renderPreviewPage();
 }
 
+// TODO (architecture change): this switch is the heart of the fetch-only
+// rewrite. Every case should become `fetch(precomputed_file)` — no compute.
+//   step 1 -> fetch umap_coords.npy      step 5 -> fetch norm_table.json
+//   step 2 -> fetch family_labels.npy    step 6 -> fetch kde_curves.json
+//   step 3 -> fetch blob_contours.json   step 7 -> fetch spatial_grid.json
+//   step 8 -> fetch stock.csv (already real)
+// The compute*() calls at cases 2/4/5 and the setTimeout stand-ins go away.
 function runLoadingStep(index) {
     return new Promise(function (resolve) {
         switch (index) {

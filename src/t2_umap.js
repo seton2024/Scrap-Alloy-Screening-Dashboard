@@ -141,6 +141,11 @@ function t2OnMouseUp() {
         return;
     }
 
+    // TODO (architecture change): this full 324k-row linear scan should be a
+    // spatial-grid lookup. Per the schema change, the in-browser quadtree is
+    // replaced by data/spatial_grid.json (a 2D grid of cell -> rowIds, built
+    // in data/precompute.py and fetched at load into session.spatial_grid).
+    // The rectangle brush should query only the cells the rectangle overlaps.
     const attrX = ATTR_BY_KEY["YS"], attrY = ATTR_BY_KEY["CSC"];
     const colX = session.columns[attrX.col], colY = session.columns[attrY.col];
     const rowIds = new Set();
