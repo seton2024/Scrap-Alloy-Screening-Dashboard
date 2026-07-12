@@ -84,6 +84,9 @@ function t2BuildPatterns(ctx) {
             case "stipple":
                 [[2, 2], [6, 3], [3, 6], [6, 7]].forEach(function (p) { pctx.moveTo(p[0] + 1, p[1]); pctx.arc(p[0], p[1], 1, 0, 2 * Math.PI); });
                 break;
+            case "wave":
+                pctx.moveTo(0, 4); pctx.quadraticCurveTo(2, 1, 4, 4); pctx.quadraticCurveTo(6, 7, 8, 4);
+                break;
             default: break; // "solid" — no overlay
         }
         pctx.stroke();
