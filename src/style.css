@@ -479,6 +479,11 @@ h1, h2, h3, h4 { font-family: var(--font-base); margin: 0 0 var(--space-2); }
     font-weight: 600;
 }
 
+/* single vs combined stock alerts: different leading glyph AND indent 2 channels*/
+.alert-line { padding: 1px 0; }
+.alert-single { margin-left: 0; }
+.alert-combined { margin-left: var(--space-3); font-weight: 500; }
+
 /* ---------------------------------------------------------------- */
 /* Texture-fill swatches — redundant channel for family hue (§3.2.1) */
 /* ---------------------------------------------------------------- */
@@ -554,6 +559,12 @@ div.tooltip {
 .t6-table { width: 100%; border-collapse: collapse; font-size: 12px; }
 .t6-table th, .t6-table td { padding: 4px 8px; border-bottom: 1px solid #eee; text-align: left; }
 .t6-table td:not(:first-child) { text-align: right; }
+
+/* T5 axis-label hover -> matching T6 row. Neutral gray, same channel as the
+   T2/T3 brush overlays — never a data-encoding hue (amber/red/family colors
+   are all already spoken for elsewhere in this app). */
+.t6-row-hover { background: rgba(0, 0, 0, 0.06); }
+.t6-row-hover td:first-child { border-left: 3px solid #555; padding-left: 5px; }
 
 
 .legend-item   { display: inline-flex; align-items: center; gap: 4px; margin: 0 12px 4px 0; font-size: 12px; }

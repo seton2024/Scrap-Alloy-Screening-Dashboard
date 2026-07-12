@@ -14,15 +14,13 @@ const session = {
     // dataset (written once by the loading pipeline)
     columns: {},            // { colName: Array } column-store, full dataset
     umap: null,              // Float32Array, 324632 rows * 2 (x,y) — not yet used
-    family_labels: null,      // Uint8Array, 324632 family indices (0-6)
-    blob_contours: [],       // array of 6 polygon arrays [[x, y], ...] — not yet used
-    norm_table: {},          // { colName: { min, max } }
+    family_labels: null,      // Uint8Array, 324632 family indices (0-6)    norm_table: {},          // { colName: { min, max } }
     kde_cache: {},           // { attrKey: { familyIdx: Float32Array(200) } }
     quadtree: null,
     stock: {},               // { scrap_family_name: qty_kg }
     rowCount: 0,
 
-    // T1 (session.projects is the only field T1 is allowed to write)
+    // T1 (session.projects T1 is allowed to write)
     projects: [],            // 1 or 2 entries, 
 
     // cross-view selection state
@@ -30,7 +28,8 @@ const session = {
     brush_t3: {},             // { attrKey: [normMin, normMax] }
     active_set: null,         // Set of row ids (brush_t2 ∩ brush_t3), or null = "all"
     picks: [],                // up to 4 entries: { rowId, number: 1-4, project: 'A'|'B' }
-    stock_alerts: []          // { type: 'single'|'combined', ... }
+    stock_alerts: [],         // { type: 'single'|'combined', ... }
+    hovered_axis: null        // { key, project: 'A'|'B' } | null — T5 axis-label hover, read by T6 to highlight its matching row
 };
 
 // SHARED CONFIG — single source of truth for every view
@@ -63,8 +62,7 @@ const SECONDARY_ATTRS = ATTRIBUTES.filter(function (a) { return a.tier === "seco
 const ATTR_BY_KEY = {};
 ATTRIBUTES.forEach(function (a) { ATTR_BY_KEY[a.key] = a; });
 
-// The 6 scrap families (index 0-5). Mixed (index 6) is a derived tie-break
-// category and has no input column of its own.
+// 6 scrap families (index 0-5). Mixed (index 6) is a derived => no input column of its own.
 const SCRAP_FAMILIES = [
     { key: "KS1295",  col: "KS1295[%]"  },
     { key: "6082",    col: "6082[%]"    },
@@ -146,7 +144,7 @@ const pipeline = (function () {
     }
 
     // active_set = rows that pass the T2 brush AND every T3 range brush.
-    // null means "no active filter" (i.e. all rows are in play).
+    // null means "no active filter".
     function recomputeActiveSet() {
         const brushKeys = Object.keys(session.brush_t3);
         if (brushKeys.length === 0 && !session.brush_t2) {
@@ -184,8 +182,6 @@ const pipeline = (function () {
 })();
 
 // Canvas helper — crisp rendering on high-DPI screens
-//  if backing store and displayed size (set by CSS) differ this sizes the backing store to 
-// (displayed size × devicePixelRatio) and scales the drawing context to match
 
 function setupHiDPICanvas(canvas) {
     const rect = canvas.getBoundingClientRect();

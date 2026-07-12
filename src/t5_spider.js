@@ -6,9 +6,11 @@
 * picked while that project was active, on 7 normalized axes (outward =
 * better). Alloys are distinguished by stroke dash style. A second pass marks
 * constraint-violation vertices in red. Stock demand is checked against the
-* facility stock file; offenders get amber vertex rings and a message in the
-* banner between the two spiders. Results are written to session.stock_alerts
-* for T6 to consume.
+* facility stock file — single-alloy and PAIRWISE (one A alloy x one B alloy)
+* — offenders get amber vertex rings and a message in the banner between the
+* two spiders. Results are written to session.stock_alerts for T6 to consume.
+* Hovering an axis label sets session.hovered_axis for T6 to highlight.
+* Chart/legend geometry is derived from the canvas's actual size (FIX M2).
 */
 
 // fixed axis order (report §3.7): CSC first (non-negotiable), then the
@@ -20,10 +22,47 @@ const T5_AXIS_ORDER = ["CSC", "YS", "TC", "ER", "Hardness", "Density", "LinearTE
 const ALLOY_COLORS = ["#0072B2", "#D55E00", "#009E73", "#CC79A7"];
 const ALLOY_DASHES = [[], [8, 4], [2, 4], [8, 4, 2, 4]];
 
+// per-canvas axis-label hit boxes, stashed each render so the hover handler
+// can hit-test without redoing the trig; keyed by canvas id
+let t5Layout = {};
+
 function initT5() {
     pipeline.onChange("picks", renderT5Spiders);
     pipeline.onChange("projects", renderT5Spiders);
     pipeline.onChange("loaded", renderT5Spiders);
+
+    // TA: hover a spider axis label -> highlight the matching T6 row
+    [["canvasT5-A", "A"], ["canvasT5-B", "B"]].forEach(function (pair) {
+        const canvas = document.getElementById(pair[0]);
+        canvas.addEventListener("mousemove", function (evt) { t5OnHoverMove(evt, pair[0], pair[1]); });
+        canvas.addEventListener("mouseleave", function () { t5SetHoveredAxis(null); });
+    });
+}
+
+function t5HitAxisLabel(canvasId, x, y) {
+    const L = t5Layout[canvasId];
+    if (!L) return null;
+    for (let i = 0; i < L.labels.length; i++) {
+        const b = L.labels[i];
+        if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) return b.key;
+    }
+    return null;
+}
+
+function t5OnHoverMove(evt, canvasId, project) {
+    const rect = evt.currentTarget.getBoundingClientRect();
+    const key = t5HitAxisLabel(canvasId, evt.clientX - rect.left, evt.clientY - rect.top);
+    t5SetHoveredAxis(key ? { key: key, project: project } : null);
+}
+
+// only touch the pipeline when the hovered axis actually changes — mousemove
+// fires continuously, and pipeline.set always emits, so re-setting the same
+// value every frame would force T6 to needlessly re-highlight on every pixel
+function t5SetHoveredAxis(next) {
+    const cur = session.hovered_axis;
+    const unchanged = (!cur && !next) || (cur && next && cur.key === next.key && cur.project === next.project);
+    if (unchanged) return;
+    pipeline.set("hovered_axis", next);
 }
 
 // normalized 0-1 with lower-is-better inversion baked in (outward = better)
@@ -65,7 +104,23 @@ function drawSpider(canvasId, projIdx) {
     const ctx = hd.ctx, W = hd.W, H = hd.H;
     ctx.clearRect(0, 0, W, H);
 
-    const cx = W / 2, cy = 130, maxR = 100;
+    // FIX M2: derive geometry from the actual canvas size instead of the
+    // hardcoded cy=130/maxR=100 — those only worked because the canvas
+    // happened to be 320px tall. Reserve room for the title (top) and the
+    // legend (bottom) first, then fit the radius (plus its label overhang)
+    // into whatever vertical AND horizontal space is left, so the legend can
+    // never overlap the chart regardless of the canvas's actual size.
+    const titleH = 16;
+    const legendRowH = 14, legendRows = 4;
+    const legendH = legendRows * legendRowH + 8;
+    const labelPad = 20; // clearance for axis label text sticking out past the radius
+
+    const cx = W / 2;
+    const availH = H - titleH - legendH;
+    const cy = titleH + availH / 2;
+    const maxR = Math.max(20, Math.min(availH / 2, cx) - labelPad);
+    const legendTop = H - legendH + 6;
+
     const nAx = T5_AXIS_ORDER.length;
     const angle = function (i) { return -Math.PI / 2 + i * (2 * Math.PI / nAx); };
 
@@ -85,13 +140,18 @@ function drawSpider(canvasId, projIdx) {
     ctx.font = "9px Inter, sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
+    const labelBoxes = []; // hit-test regions for hover, see t5HitAxisLabel
     T5_AXIS_ORDER.forEach(function (key, i) {
         const a = angle(i);
         ctx.strokeStyle = "#ddd";
         ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + maxR * Math.cos(a), cy + maxR * Math.sin(a)); ctx.stroke();
         ctx.fillStyle = "#555";
-        ctx.fillText(key, cx + (maxR + 12) * Math.cos(a), cy + (maxR + 10) * Math.sin(a));
+        const lx = cx + (maxR + 12) * Math.cos(a), ly = cy + (maxR + 10) * Math.sin(a);
+        ctx.fillText(key, lx, ly);
+        const tw = ctx.measureText(key).width;
+        labelBoxes.push({ key: key, x: lx - tw / 2 - 3, y: ly - 7, w: tw + 6, h: 14 });
     });
+    t5Layout[canvasId] = { labels: labelBoxes };
 
     // spider title
     ctx.fillStyle = "#333";
@@ -149,7 +209,7 @@ function drawSpider(canvasId, projIdx) {
         });
     });
 
-    drawSpiderLegend(ctx, picks, project, H);
+    drawSpiderLegend(ctx, picks, project, legendTop, legendRowH);
 }
 
 // higher-is-better fails below the effective floor; lower-is-better fails above it
@@ -160,8 +220,10 @@ function violatesConstraint(project, attrKey, rawValue) {
     return attr.higherIsBetter ? rawValue < t.effective : rawValue > t.effective;
 }
 
-function drawSpiderLegend(ctx, picks, project, H) {
-    let y = H - 4 * 14 - 6;
+// FIX M2: legendTop/rowH come from drawSpider's canvas-size-derived budget,
+// not a value re-hardcoded here — one source of truth for the reserved space.
+function drawSpiderLegend(ctx, picks, project, legendTop, rowH) {
+    let y = legendTop;
     ctx.font = "10px Inter, sans-serif";
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
@@ -183,7 +245,7 @@ function drawSpiderLegend(ctx, picks, project, H) {
         ctx.fillStyle = violates ? "#C1121F" : "#333";
         ctx.font = (violates ? "700 " : "") + "10px Inter, sans-serif";
         ctx.fillText((stockHit ? "⚠ " : "") + rowName, 36, y);
-        y += 14;
+        y += rowH;
     });
 }
 
@@ -219,13 +281,21 @@ function computeStockAlerts() {
             }
         });
 
-        // combined check: the two projects together drain the same pile
-        if (dual && aPicks.length && bPicks.length) {
-            const demandA = aPicks.reduce(function (s, p) { return s + recipeFraction(p.rowId, fam.col) * batchA; }, 0);
-            const demandB = bPicks.reduce(function (s, p) { return s + recipeFraction(p.rowId, fam.col) * batchB; }, 0);
-            if (demandA + demandB > available) {
-                alerts.push({ type: "combined", scrap: fam.key });
-            }
+        // FIX R3: combined check is PAIRWISE — one alloy from A x one from B,
+        // as if that specific pair alone were produced (report §4.6.5). The
+        // old code summed demand over EVERY A pick x EVERY B pick at once
+        // (up to 4 recipes each), which overstates demand and fires false
+        // alarms whenever a client has more than one pick.
+        if (dual) {
+            aPicks.forEach(function (a) {
+                bPicks.forEach(function (b) {
+                    const demand = recipeFraction(a.rowId, fam.col) * batchA
+                                 + recipeFraction(b.rowId, fam.col) * batchB;
+                    if (demand > available) {
+                        alerts.push({ type: "combined", scrap: fam.key, rowIdA: a.rowId, rowIdB: b.rowId });
+                    }
+                });
+            });
         }
     });
     return alerts;
@@ -235,10 +305,9 @@ function computeStockAlerts() {
 function pickHasStockAlert(pick) {
     return session.stock_alerts.some(function (al) {
         if (al.type === "single") return al.rowId === pick.rowId;
-        // combined: any scrap this alloy actually uses
-        return SCRAP_FAMILIES.some(function (f) {
-            return f.key === al.scrap && recipeFraction(pick.rowId, f.col) > 0;
-        });
+        // combined: only the two specific alloys in the offending pair — not
+        // every alloy that happens to touch that scrap (that was the R3 bug)
+        return al.rowIdA === pick.rowId || al.rowIdB === pick.rowId;
     });
 }
 
@@ -246,20 +315,35 @@ function mixtureName(rowId) {
     return session.columns["Mixture ID"] ? session.columns["Mixture ID"][rowId] : "Row " + rowId;
 }
 
+// two visually distinct alert formats (report §4.6.6): single uses the plain
+// warning icon at the banner's base indent; combined additionally names BOTH
+// implicated alloys and is set apart by a different leading glyph (↳, reading
+// as "a consequence of pairing these two") plus a CSS indent — icon AND
+// indent, not just one or the other
 function renderStockAlertBanner() {
     const banner = document.getElementById("alertBanner");
-    if (!session.stock_alerts.length) { banner.textContent = ""; return; }
+    if (!session.stock_alerts.length) { banner.innerHTML = ""; return; }
 
-    // ⚠ = warning triangle, • = bullet — written as escapes so they
-    // survive whatever encoding the browser picks for this .js file
-    const lines = session.stock_alerts.map(function (al) {
-        if (al.type === "single") {
-            return "⚠ Caution: " + mixtureName(al.rowId) + " exceeds available stock for " + al.scrap;
-        }
-        return "⚠ Caution: Project A and Project B together go beyond stock for " + al.scrap;
+    // de-duplicate by content, not by object identity (single: rowId+scrap;
+    // combined: the specific A+B pair+scrap)
+    const seen = new Set();
+    const unique = session.stock_alerts.filter(function (al) {
+        const key = al.type === "single"
+            ? "s|" + al.rowId + "|" + al.scrap
+            : "c|" + al.rowIdA + "|" + al.rowIdB + "|" + al.scrap;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
     });
-    // de-duplicate identical messages
-    banner.textContent = Array.from(new Set(lines)).join("   •   ");
+
+    banner.innerHTML = unique.map(function (al) {
+        if (al.type === "single") {
+            return "<div class='alert-line alert-single'>&#9888; " + escapeHtml(mixtureName(al.rowId)) +
+                   " exceeds available stock for " + escapeHtml(al.scrap) + "</div>";
+        }
+        return "<div class='alert-line alert-combined'>&#8627; " + escapeHtml(mixtureName(al.rowIdA)) + " (A) + " +
+               escapeHtml(mixtureName(al.rowIdB)) + " (B) together exceed stock for " + escapeHtml(al.scrap) + "</div>";
+    }).join("");
 }
 
 document.addEventListener("DOMContentLoaded", initT5);
