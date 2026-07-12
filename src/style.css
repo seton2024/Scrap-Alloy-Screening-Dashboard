@@ -165,8 +165,7 @@ h1, h2, h3, h4 { font-family: var(--font-base); margin: 0 0 var(--space-2); }
     color: var(--text-color);
     cursor: pointer;
 }
-.t4-toggle-btn.active[data-project="A"] { background: var(--color-warning); border-color: var(--color-warning); color: #fff; }
-.t4-toggle-btn.active[data-project="B"] { background: var(--color-batbox); border-color: var(--color-batbox); color: #fff; }
+.t4-toggle-btn.active { background: #111827; border-color: #111827; color: #fff; }
 
 
 /* TAB BAR*/
@@ -580,6 +579,10 @@ div.tooltip {
 .t6-cell-amber { background: rgba(230, 159, 0, 0.24); }
 /* best value for this property row within its table */
 .t6-cell-best { color: var(--color-success); font-weight: 700; }
+
+/* visual boundary between A's columns (left) and B's columns (right) in
+   the single merged T6 table */
+.t6-b-divider { border-left: 2px solid var(--border-color); }
 
 /* T5 axis-label hover -> matching T6 row.*/
 .t6-row-hover { background: rgba(0, 0, 0, 0.06); }

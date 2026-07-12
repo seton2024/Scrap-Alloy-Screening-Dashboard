@@ -10,9 +10,15 @@
 *
 * Three scatter-style panels the engineer uses to pick alloys:
 *   - Panel 1 (fixed):   Yield Strength × CSC
-*   - Panel 2 (custom):  X and Y from dropdowns
+*   - Panel 2 (custom):  X and Y from dropdowns, defaulting from session.axisQueue
 *   - Panel 3:           stacked bar showing the scrap mix of each pick
-* Plus an "+ Add plot" button that spawns up to 3 more custom scatter panels.
+* Plus an "+ Add plot" button that spawns up to 3 more custom scatter panels,
+* also seeded from session.axisQueue.
+*
+* Each scatter panel is independent: its own {axisX, axisY, domain,
+* userHasZoomed} state (t4Panels). Default domain = bbox of feasible rows
+* (rows passing >= 1 project's full thresholds) padded 5%; manual drag-zoom
+* marks the panel userHasZoomed so T1/T3-driven bbox refreshes leave it alone.
 *
 * Clicking a dot picks that alloy (max 4). Clicking a picked dot removes it.
 * Every pick lands in session.picks, which T5 and T6 automatically react to.
@@ -22,33 +28,41 @@ const T4_MAX_EXTRA_PLOTS = 3;   // how many extra panels the "+ Add plot" button
 const T4_PICK_LIMIT = 4;        // no more than 4 alloys picked at once, PER PROJECT
 const T4_HIT_RADIUS = 15;       // pixels — how close a click has to be to grab a new point
 const T4_PICK_RADIUS = 12;      // pixels — how close a click has to be to remove an existing pick
+const T4_BBOX_PAD = 0.05;       // 5% padding around a panel's default feasible bbox
 let t4ExtraPanelCount = 0;      // count of extra panels currently on screen
 
 // which project a NEW click picks into. Existing picks always stay removable
 // regardless of this — it only decides where a fresh pick lands.
 let t4ActiveProject = "A";
 
+// per-panel state: id -> { axisX, axisY, userHasZoomed, domain: {xMin,xMax,yMin,yMax}|null }
+// ids: "1" (fixed YS/CSC), "2" (built-in choosable), "extra-1".."extra-3"
+let t4Panels = {};
+
 function initT4() {
-    // The Loading tab finishes -> switch the placeholder off, wire up the dropdowns,
-    // draw the panels for the first time, and start listening for clicks.
+    // The Loading tab finishes -> switch the placeholder off, seed the panels
+    // from session.axisQueue, draw for the first time, start listening for clicks.
     pipeline.onChange("loaded", function () {
         document.getElementById("placeholderT4").hidden = true;
-        populateAxisSelect(document.getElementById("t4-2-x"), "TC");
-        populateAxisSelect(document.getElementById("t4-2-y"), "YS");
+        t4InitPanels();
         renderT4Legend();
         renderT4Panels();
         wireT4CanvasClicks();
+        wireT4BarHover();
+        window.addEventListener("resize", t4SyncPanelHeights);
     });
 
     // Any of these three changing means the scatters look different — redraw.
-    pipeline.onChange("active_set", renderT4Panels);   // T2/T3 brushes narrowed the set
+    // active_set also drives each unzoomed panel's default domain (the
+    // combined T2 ∩ T3 "zoomed in spot" — see t4ComputeDefaultBBox).
+    pipeline.onChange("active_set", function () { t4RefitUnzoomedPanels(); renderT4Panels(); });
     pipeline.onChange("picks",      renderT4Panels);   // the user picked/unpicked
     pipeline.onChange("projects",   t4OnProjectsChanged); // T1 thresholds moved / B added-removed
 
     // Button + dropdown listeners
     document.getElementById("addPlotBtn").addEventListener("click", addScatterPlot);
-    document.getElementById("t4-2-x").addEventListener("change", renderT4Panels);
-    document.getElementById("t4-2-y").addEventListener("change", renderT4Panels);
+    document.getElementById("t4-2-x").addEventListener("change", function () { t4OnAxisSelectChanged("2", "axisX", this.value); });
+    document.getElementById("t4-2-y").addEventListener("change", function () { t4OnAxisSelectChanged("2", "axisY", this.value); });
 
     document.getElementById("t4ToggleA").addEventListener("click", function () { t4SetActiveProject("A"); });
     document.getElementById("t4ToggleB").addEventListener("click", function () { t4SetActiveProject("B"); });
@@ -60,12 +74,28 @@ function t4SetActiveProject(proj) {
     document.getElementById("t4ToggleB").classList.toggle("active", proj === "B");
 }
 
+// re-fit every panel's default bbox (T2 ∩ T3 selection, or feasible bbox —
+// see t4ComputeDefaultBBox), but leave any panel the user has manually
+// zoomed alone. Called whenever session.projects or session.active_set changes.
+function t4RefitUnzoomedPanels() {
+    Object.keys(t4Panels).forEach(function (id) {
+        const panel = t4Panels[id];
+        if (panel.userHasZoomed || !panel.axisX || !panel.axisY) return;
+        if (!ATTR_BY_KEY[panel.axisX] || !ATTR_BY_KEY[panel.axisY]) return;
+        panel.domain = t4ComputeDefaultBBox(ATTR_BY_KEY[panel.axisX], ATTR_BY_KEY[panel.axisY]);
+    });
+}
+
 // the toggle only makes sense in dual-project mode; fall back to A if B
 // disappears (matches T1's own "removing B clears B's picks" behavior)
 function t4OnProjectsChanged() {
     const dual = session.projects.length > 1;
     document.getElementById("t4ProjectToggle").hidden = !dual;
     if (!dual) t4SetActiveProject("A");
+
+    // session.feasible_mask is already fresh here (pipeline recomputes it
+    // before "projects" listeners fire)
+    t4RefitUnzoomedPanels();
     renderT4Panels();
 }
 
@@ -83,89 +113,255 @@ function renderT4Legend() {
 function renderT4Panels() {
     if (!session.loaded) return;
 
-    drawScatterPanel(document.getElementById("canvasT4-1"), "YS", "CSC");
-    const xKey = document.getElementById("t4-2-x").value;
-    const yKey = document.getElementById("t4-2-y").value;
-    drawScatterPanel(document.getElementById("canvasT4-2"), xKey, yKey);
+    drawScatterPanel(document.getElementById("canvasT4-1"), "1");
+    drawScatterPanel(document.getElementById("canvasT4-2"), "2");
     drawStackedBar(document.getElementById("canvasT4-bar"));
 
     for (let n = 1; n <= t4ExtraPanelCount; n++) {
         const canvas = document.getElementById("canvasT4-extra-" + n);
-        const xSel = document.getElementById("t4-extra-" + n + "-x");
-        const ySel = document.getElementById("t4-extra-" + n + "-y");
-        if (canvas && xSel && ySel) drawScatterPanel(canvas, xSel.value, ySel.value);
+        if (canvas && t4Panels["extra-" + n]) drawScatterPanel(canvas, "extra-" + n);
+    }
+
+    t4SyncPanelHeights();
+}
+
+/* ==================================================================
+ * Panel setup — axis defaults from session.axisQueue (docs/pipeline_contract
+ * §axisQueue): T1 constraints first, then T3 brush axes, in the order they
+ * were queued.
+ * ================================================================== */
+
+// UTS (ultimate tensile strength) isn't a column in this dataset; YS (yield
+// strength) is the closest analogue and already anchors panel 1, so it's the
+// fallback whenever the spec calls for a default axis and the queue is empty.
+const T4_FALLBACK_AXIS = "YS";
+
+function t4InitPanels() {
+    const firstQueueAxis = session.axisQueue.length ? session.axisQueue[0].axis : null;
+    t4Panels = {
+        "1": { axisX: "YS", axisY: "CSC", userHasZoomed: false, domain: null },
+        "2": { axisX: firstQueueAxis || T4_FALLBACK_AXIS, axisY: "CSC", userHasZoomed: false, domain: null }
+    };
+    t4Panels["1"].domain = t4ComputeDefaultBBox(ATTR_BY_KEY.YS, ATTR_BY_KEY.CSC);
+    t4Panels["2"].domain = t4ComputeDefaultBBox(ATTR_BY_KEY[t4Panels["2"].axisX], ATTR_BY_KEY.CSC);
+
+    populateAxisSelect(document.getElementById("t4-2-x"), t4Panels["2"].axisX);
+    populateAxisSelect(document.getElementById("t4-2-y"), t4Panels["2"].axisY);
+}
+
+// user changed one of panel 2 / an extra panel's axis dropdowns
+function t4OnAxisSelectChanged(panelId, axisField, newKey) {
+    const panel = t4Panels[panelId];
+    if (!panel) return;
+    panel[axisField] = newKey;
+    panel.userHasZoomed = false;
+    panel.domain = (ATTR_BY_KEY[panel.axisX] && ATTR_BY_KEY[panel.axisY])
+        ? t4ComputeDefaultBBox(ATTR_BY_KEY[panel.axisX], ATTR_BY_KEY[panel.axisY])
+        : null;
+    renderT4Panels();
+}
+
+// which axes are already in use as X (resp. Y) across every existing panel
+function t4UsedAxes(field) {
+    return Object.keys(t4Panels).map(function (id) { return t4Panels[id][field]; });
+}
+
+// "+ Add plot" axis picker (pipeline_contract axisQueue spec):
+//   1. walk the queue for the first axis not yet used as X anywhere -> axisY = CSC
+//   2. queue exhausted for the X role -> walk it again for the first axis not
+//      yet used as Y -> axisX = CSC
+//   3. queue empty / fully used both ways -> CSC / YS fallback
+function t4PickAxisForNewPanel() {
+    const queue = session.axisQueue;
+    const usedX = t4UsedAxes("axisX");
+    for (let i = 0; i < queue.length; i++) {
+        if (usedX.indexOf(queue[i].axis) === -1) {
+            return { axisX: queue[i].axis, axisY: "CSC", presetXRange: queue[i].brushRange };
+        }
+    }
+    const usedY = t4UsedAxes("axisY");
+    for (let i = 0; i < queue.length; i++) {
+        if (usedY.indexOf(queue[i].axis) === -1) {
+            return { axisX: "CSC", axisY: queue[i].axis, presetXRange: null };
+        }
+    }
+    return { axisX: T4_FALLBACK_AXIS, axisY: "CSC", presetXRange: null };
+}
+
+// convert a T3 brush_t3 range (stored normalized [0,1], 1 = "best") back to
+// raw data units on this attribute, mirroring pipeline.normAttr's inversion
+function t4DenormAttr(key, n) {
+    const a = ATTR_BY_KEY[key];
+    const nt = a && session.norm_table[a.col];
+    if (!nt) return null;
+    const span = nt.max - nt.min;
+    return a.higherIsBetter ? nt.min + n * span : nt.min + (1 - n) * span;
+}
+
+function t4DenormRange(key, normRange) {
+    const r0 = t4DenormAttr(key, normRange[0]), r1 = t4DenormAttr(key, normRange[1]);
+    return r0 <= r1 ? [r0, r1] : [r1, r0];
+}
+
+/* ==================================================================
+ * Feasibility — session.feasible_mask (pipeline.js) is a Uint8Array, 1 =
+ * row meets ALL of at least one active project's effective thresholds
+ * (every attribute that project constrains, not just the two axes on
+ * screen). Pipeline recomputes it reactively whenever session.projects
+ * changes, before "projects" subscribers fire, so it's always current here.
+ * ================================================================== */
+function t4IsFeasible(i) {
+    return session.feasible_mask ? session.feasible_mask[i] === 1 : pipeline.rowIsFeasible(i);
+}
+
+// default (un-zoomed) domain for a panel: bbox of every feasible row on
+// these two axes, padded 5%; falls back to the full data range if nothing
+// is feasible yet (e.g. no projects defined)
+function t4ComputeFeasibleBBox(attrX, attrY) {
+    const ntX = session.norm_table[attrX.col], ntY = session.norm_table[attrY.col];
+    const colX = session.columns[attrX.col], colY = session.columns[attrY.col];
+    const n = session.rowCount;
+    let xLo = Infinity, xHi = -Infinity, yLo = Infinity, yHi = -Infinity, found = false;
+
+    for (let i = 0; i < n; i++) {
+        if (!t4IsFeasible(i)) continue;
+        found = true;
+        const vx = colX[i], vy = colY[i];
+        if (vx < xLo) xLo = vx; if (vx > xHi) xHi = vx;
+        if (vy < yLo) yLo = vy; if (vy > yHi) yHi = vy;
+    }
+    if (!found) { xLo = ntX.min; xHi = ntX.max; yLo = ntY.min; yHi = ntY.max; }
+
+    const padX = (xHi - xLo) * T4_BBOX_PAD || (ntX.max - ntX.min) * T4_BBOX_PAD || 1;
+    const padY = (yHi - yLo) * T4_BBOX_PAD || (ntY.max - ntY.min) * T4_BBOX_PAD || 1;
+    return { xMin: xLo - padX, xMax: xHi + padX, yMin: yLo - padY, yMax: yHi + padY };
+}
+
+// bbox (padded 5%) of an arbitrary row-id iterable on two axes; null if the
+// iterable is empty. Used to zoom to the T2 ∩ T3 combined selection.
+function t4ComputeBBoxFromRows(attrX, attrY, rowIds) {
+    const colX = session.columns[attrX.col], colY = session.columns[attrY.col];
+    let xLo = Infinity, xHi = -Infinity, yLo = Infinity, yHi = -Infinity, found = false;
+    rowIds.forEach(function (i) {
+        found = true;
+        const vx = colX[i], vy = colY[i];
+        if (vx < xLo) xLo = vx; if (vx > xHi) xHi = vx;
+        if (vy < yLo) yLo = vy; if (vy > yHi) yHi = vy;
+    });
+    if (!found) return null;
+    const padX = (xHi - xLo) * T4_BBOX_PAD || 1;
+    const padY = (yHi - yLo) * T4_BBOX_PAD || 1;
+    return { xMin: xLo - padX, xMax: xHi + padX, yMin: yLo - padY, yMax: yHi + padY };
+}
+
+// default (un-zoomed) domain for a panel — prefers the combined T2 ∩ T3
+// selection (session.active_set) when one is active, since that's the
+// "zoomed in spot" the user is currently narrowing toward; falls back to
+// the broader feasible bbox (project thresholds) when nothing is brushed.
+function t4ComputeDefaultBBox(attrX, attrY) {
+    if (session.active_set) {
+        const bbox = t4ComputeBBoxFromRows(attrX, attrY, session.active_set);
+        if (bbox) return bbox;
+    }
+    return t4ComputeFeasibleBBox(attrX, attrY);
+}
+
+// T3 brush cleared (middle-click, see t3_violin.js) -> snap every linked
+// panel back to its default (T2 ∩ T3, or feasible) bbox on that axis
+function t4ResetPanelZoomForAxis(axis) {
+    let touched = false;
+    Object.keys(t4Panels).forEach(function (id) {
+        const panel = t4Panels[id];
+        if (panel.axisX !== axis && panel.axisY !== axis) return;
+        if (!ATTR_BY_KEY[panel.axisX] || !ATTR_BY_KEY[panel.axisY]) return;
+        panel.userHasZoomed = false;
+        panel.domain = t4ComputeDefaultBBox(ATTR_BY_KEY[panel.axisX], ATTR_BY_KEY[panel.axisY]);
+        touched = true;
+    });
+    if (touched) renderT4Panels();
+}
+
+// T3 brush committed on `axis` with normalized [lo,hi] -> update that axis's
+// bound on every linked, not-manually-zoomed panel
+function t4SyncPanelZoomFromBrush(axis, normRange) {
+    const [lo, hi] = t4DenormRange(axis, normRange);
+    let touched = false;
+    Object.keys(t4Panels).forEach(function (id) {
+        const panel = t4Panels[id];
+        if (panel.userHasZoomed) return;
+        if (!panel.domain) return;
+        if (panel.axisX === axis) { panel.domain.xMin = lo; panel.domain.xMax = hi; touched = true; }
+        if (panel.axisY === axis) { panel.domain.yMin = lo; panel.domain.yMax = hi; touched = true; }
+    });
+    if (touched) renderT4Panels();
+}
+
+// Numeric tick marks + values along X and Y, evenly spaced across the
+// panel's current domain — so the axes carry an actual value scale, not
+// just the attribute name and relative dot position.
+const T4_TICK_COUNT = 4; // -> 5 labels per axis, including both ends
+
+function t4DrawAxisTicks(ctx, xLo, xHi, yLo, yHi, xToPx, yToPx, mL, mT, plotW, plotH) {
+    ctx.font = "8px Inter, sans-serif";
+    ctx.strokeStyle = "#ccc";
+    ctx.fillStyle = "#666";
+    ctx.lineWidth = 1;
+
+    ctx.textAlign = "center";
+    ctx.textBaseline = "alphabetic";
+    for (let t = 0; t <= T4_TICK_COUNT; t++) {
+        const v = xLo + (t / T4_TICK_COUNT) * (xHi - xLo);
+        const px = xToPx(v);
+        ctx.beginPath();
+        ctx.moveTo(px, mT + plotH);
+        ctx.lineTo(px, mT + plotH + 3);
+        ctx.stroke();
+        ctx.fillText(fmtVal(v), px, mT + plotH + 11);
+    }
+
+    ctx.textAlign = "right";
+    ctx.textBaseline = "middle";
+    for (let t = 0; t <= T4_TICK_COUNT; t++) {
+        const v = yLo + (t / T4_TICK_COUNT) * (yHi - yLo);
+        const py = yToPx(v);
+        ctx.beginPath();
+        ctx.moveTo(mL - 3, py);
+        ctx.lineTo(mL, py);
+        ctx.stroke();
+        ctx.fillText(fmtVal(v), mL - 5, py);
     }
 }
 
 /* ==================================================================
- * Zoom — rectangle-drag on one panel selects a row subset; every panel
- * (including that one) then refits ITS OWN axes to that subset's bounding
- * box. With no manual zoom active, the default view is the intersection of
- * both projects' feasible ranges (not the full data range) — this doubles
- * as both "first render" and "double-click reset" per the design brief.
+ * Draw one scatter panel: axes, all 324K dots (feasibility-encoded),
+ * constraint lines, and cross-shaped pick markers + black chip labels.
  * ================================================================== */
-let t4ZoomRowIds = null; // Set of rowIds from the last drag-zoom, or null = default view
-let t4ZoomDrag = null;   // { canvas, x0,y0,x1,y1 } while a zoom drag is in progress
-
-// one project's feasible sub-range on one attribute — a threshold is
-// one-sided (>= floor for higher-is-better, <= floor for lower-is-better),
-// so "feasible" clips only the near edge, the far edge stays the data bound
-function t4FeasibleRange(project, attr, dataMin, dataMax) {
-    const t = project && project.thresholds[attr.key];
-    if (!t || t.effective == null) return [dataMin, dataMax];
-    return attr.higherIsBetter ? [t.effective, dataMax] : [dataMin, t.effective];
-}
-
-// default (un-zoomed) axis range: intersection of A's and B's feasible
-// ranges. Gracefully degrades — single project -> just A's range; no
-// projects / no threshold on this attribute -> the full data range.
-function t4DefaultRange(attr, nt) {
-    const rangeA = t4FeasibleRange(session.projects[0], attr, nt.min, nt.max);
-    const rangeB = t4FeasibleRange(session.projects[1], attr, nt.min, nt.max);
-    const lo = Math.max(rangeA[0], rangeB[0]), hi = Math.min(rangeA[1], rangeB[1]);
-    return (lo < hi) ? [lo, hi] : [nt.min, nt.max]; // empty intersection -> show everything rather than nothing
-}
-
-// the range this panel should actually use for one axis right now
-function t4AxisRange(attr, nt) {
-    if (t4ZoomRowIds) {
-        let lo = Infinity, hi = -Infinity;
-        const col = session.columns[attr.col];
-        t4ZoomRowIds.forEach(function (id) {
-            const v = col[id];
-            if (v < lo) lo = v;
-            if (v > hi) hi = v;
-        });
-        if (lo < hi) return [lo, hi];
-    }
-    return t4DefaultRange(attr, nt);
-}
-
-// Draw one scatter panel: axes, all 324K dots, constraint lines, and pick badges.
-function drawScatterPanel(canvas, xKey, yKey) {
+function drawScatterPanel(canvas, panelId) {
     const hd = setupHiDPICanvas(canvas);
     if (!hd) return;                    // canvas not visible yet — skip and try again later
     const ctx = hd.ctx, W = hd.W, H = hd.H;
 
     ctx.clearRect(0, 0, W, H);          // wipe the canvas before every redraw
 
-    // If the user hasn't picked X or Y yet (new blank panel), show a friendly note
-    // instead of a broken chart. Setting _t4geom = null makes clicks a no-op here.
-    if (!xKey || !yKey || xKey === "__none__" || yKey === "__none__") {
-        ctx.fillStyle = "#888"; ctx.font = "11px Inter, sans-serif";
-        ctx.textAlign = "center"; ctx.textBaseline = "middle";
-        ctx.fillText("Choose X and Y attributes", W / 2, H / 2);
+    // every panel gets real default axes on creation (see t4InitPanels /
+    // addScatterPlot), so there's no user-facing "choose axes" placeholder
+    // state to render here — an invalid panel just stays a blank canvas
+    const panel = t4Panels[panelId];
+    if (!panel || !panel.axisX || !panel.axisY || panel.axisX === "__none__" || panel.axisY === "__none__") {
         canvas._t4geom = null;
         return;
     }
 
-    const attrX = ATTR_BY_KEY[xKey], attrY = ATTR_BY_KEY[yKey];
+    const attrX = ATTR_BY_KEY[panel.axisX], attrY = ATTR_BY_KEY[panel.axisY];
     if (!attrX || !attrY) return;
     const ntX = session.norm_table[attrX.col], ntY = session.norm_table[attrY.col];
     if (!ntX || !ntY) return;
 
-    // Room for axis labels: left/right/top/bottom margins.
-    const mL = 40, mR = 10, mT = 10, mB = 26;
+    if (!panel.domain) panel.domain = t4ComputeDefaultBBox(attrX, attrY);
+
+    // Room for axis labels: left/right/top/bottom margins. Wider than a bare
+    // attribute-key label needs, to also fit the numeric tick values below.
+    const mL = 48, mR = 10, mT = 10, mB = 32;
     const plotW = W - mL - mR, plotH = H - mT - mB;
 
     // Axis frame (just an L-shape).
@@ -174,77 +370,77 @@ function drawScatterPanel(canvas, xKey, yKey) {
     ctx.moveTo(mL, mT); ctx.lineTo(mL, mT + plotH); ctx.lineTo(mL + plotW, mT + plotH);
     ctx.stroke();
 
-    // Axis labels — Y is rotated 90° so it reads sideways.
-    ctx.fillStyle = "#333"; ctx.font = "10px Inter, sans-serif";
-    ctx.textAlign = "center";
-    ctx.fillText(attrX.key, mL + plotW / 2, mT + plotH + 18);
-    ctx.save();
-    ctx.translate(mL - 28, mT + plotH / 2);
-    ctx.rotate(-Math.PI / 2);
-    ctx.fillText(attrY.key, 0, 0);
-    ctx.restore();
-
-    // Axis range: either the shared zoom row-subset's bbox on THIS panel's
-    // own attributes, or (by default) the intersection of both projects'
-    // feasible ranges — see t4AxisRange.
-    const [xLo, xHi] = t4AxisRange(attrX, ntX);
-    const [yLo, yHi] = t4AxisRange(attrY, ntY);
+    // This panel's own independent zoom domain (see t4Panels).
+    const xLo = panel.domain.xMin, xHi = panel.domain.xMax;
+    const yLo = panel.domain.yMin, yHi = panel.domain.yMax;
 
     // Turn a raw data value into a pixel position (and remember it for click hits).
     function xToPx(v) { return mL + ((v - xLo) / (xHi - xLo)) * plotW; }
     function yToPx(v) { return mT + plotH - ((v - yLo) / (yHi - yLo)) * plotH; }
 
+    // Numeric tick values, then the attribute-key labels below/left of those.
+    t4DrawAxisTicks(ctx, xLo, xHi, yLo, yHi, xToPx, yToPx, mL, mT, plotW, plotH);
+    ctx.fillStyle = "#333"; ctx.font = "10px Inter, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(attrX.key, mL + plotW / 2, mT + plotH + 24);
+    ctx.save();
+    ctx.translate(mL - 38, mT + plotH / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.fillText(attrY.key, 0, 0);
+    ctx.restore();
+
     const colX = session.columns[attrX.col], colY = session.columns[attrY.col];
-    const labels = session.family_labels;
-    const active = session.active_set;   // null if no brush is active
     const n = session.rowCount;
 
-    // Points scale up as the view zooms in (TA), based on how much smaller
-    // the current range is than the full data range. Capped so it can't
+    // Points scale up as the view zooms in, based on how much smaller the
+    // current domain is than the full data range. Capped so it can't
     // balloon into overlapping blobs at extreme zoom.
     const zoomFactor = Math.sqrt(((ntX.max - ntX.min) / (xHi - xLo)) * ((ntY.max - ntY.min) / (yHi - yLo)));
     const dotR = Math.max(1, Math.min(4, zoomFactor));
 
-    // Clip so points outside the current (possibly zoomed-in) range don't
+    // Clip so points outside the current (possibly zoomed-in) domain don't
     // bleed into the axis-label margins.
     ctx.save();
     ctx.beginPath();
     ctx.rect(mL, mT, plotW, plotH);
     ctx.clip();
 
-    // Draw every alloy as a small dot. Points inside the current brush are
-    // brighter, points outside are almost invisible.
+    // Pass 1: non-feasible (fails every active project) — faint, no border,
+    // marker shape = this row's family (FAMILY_MARKERS, pipeline.js), same
+    // as everywhere else in the dashboard. Drawn first so feasible points
+    // always sit on top.
+    ctx.globalAlpha = 0.15;
     for (let i = 0; i < n; i++) {
-        const alive = !active || active.has(i);
-        ctx.globalAlpha = alive ? 0.35 : 0.05;
-        ctx.fillStyle = FAMILY_COLORS[labels[i]];
-        ctx.fillRect(xToPx(colX[i]) - dotR, yToPx(colY[i]) - dotR, dotR * 2, dotR * 2);
+        if (t4IsFeasible(i)) continue;
+        const fam = session.family_labels[i];
+        drawFamilyMarker(ctx, FAMILY_MARKERS[fam], xToPx(colX[i]), yToPx(colY[i]), dotR, FAMILY_COLORS[fam], null);
     }
-    // restore() reverts globalAlpha to whatever it was AT save() time (not
-    // necessarily 1) — the reset must happen AFTER restore, not before it,
-    // or everything drawn next (badges, lines) inherits a stale dimmed alpha
+
+    // Pass 2: feasible (passes >= 1 active project) — full opacity, border =
+    // this row's family color but darker (not a flat black outline).
+    ctx.globalAlpha = 1;
+    for (let i = 0; i < n; i++) {
+        if (!t4IsFeasible(i)) continue;
+        const fam = session.family_labels[i];
+        drawFamilyMarker(ctx, FAMILY_MARKERS[fam], xToPx(colX[i]), yToPx(colY[i]), dotR, FAMILY_COLORS[fam], FAMILY_COLORS_DARK[fam], 1.5);
+    }
     ctx.restore();
     ctx.globalAlpha = 1;
 
     // Threshold lines from T1, one per axis. Projects with the IDENTICAL
     // effective value on an axis merge into one neutral "A+B" line instead of
-    // two overlapping ones (FIX S1 — merge on exact match, not pixel
-    // proximity); otherwise each project gets its own color (A=amber,
-    // B=blue) so it's clear which line belongs to which client.
+    // two overlapping ones; otherwise each project gets its own color
+    // (A=amber, B=blue) so it's clear which line belongs to which client.
     t4DrawConstraintLine(ctx, attrX.key, true,  xToPx, mL, mT, plotW, plotH);
     t4DrawConstraintLine(ctx, attrY.key, false, yToPx, mL, mT, plotW, plotH);
 
-    // Badges over each picked alloy: "A1"-"A4" / "B1"-"B4", always black —
-    // the letter+number already says which project, no need for a second
-    // (color) channel here. Drawn last so they always sit on top of the dot cloud.
+    // Pick markers: a black cross at the alloy's position plus a black/white
+    // "A1"-"A4" / "B1"-"B4" chip beside it — drawn last so they always sit on
+    // top of the dot cloud.
     session.picks.forEach(function (pick) {
         const px = xToPx(colX[pick.rowId]), py = yToPx(colY[pick.rowId]);
-        const isB = pick.project === "B";
-        ctx.fillStyle = "#222";
-        ctx.beginPath(); ctx.arc(px, py, 9, 0, 2 * Math.PI); ctx.fill();
-        ctx.fillStyle = "#fff"; ctx.font = "bold 9px Inter, sans-serif";
-        ctx.textAlign = "center"; ctx.textBaseline = "middle";
-        ctx.fillText((isB ? "B" : "A") + pick.number, px, py);
+        const label = (pick.project === "B" ? "B" : "A") + pick.number;
+        t4DrawPickMarker(ctx, px, py, label, dotR);
     });
 
     // Live rectangle preview while dragging a zoom selection on THIS canvas.
@@ -260,12 +456,41 @@ function drawScatterPanel(canvas, xKey, yKey) {
     }
 
     // Save everything the click/zoom handlers need to translate cursor <-> data.
-    canvas._t4geom = { mL, mT, plotW, plotH, xToPx, yToPx, colX, colY };
+    canvas._t4geom = { mL, mT, plotW, plotH, xToPx, yToPx, colX, colY, panelId, xLo, xHi, yLo, yHi };
+}
+
+// cross (×) marker + black chip label, per item 8/10 of the pick-rendering
+// spec — sized relative to the panel's current dot radius so it stays
+// visible over overlapping square markers at any zoom level
+function t4DrawPickMarker(ctx, px, py, label, dotR) {
+    const half = Math.max(6, dotR * 3); // ~1.5x the *diameter* of a regular marker
+    ctx.strokeStyle = "#111827";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(px - half, py - half); ctx.lineTo(px + half, py + half);
+    ctx.moveTo(px + half, py - half); ctx.lineTo(px - half, py + half);
+    ctx.stroke();
+
+    ctx.font = "bold 9px Inter, sans-serif";
+    const tw = ctx.measureText(label).width;
+    const cx = px + half + 4, cy = py - half - 4;
+    ctx.fillStyle = "#111827";
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(cx - tw / 2 - 4, cy - 7.5, tw + 8, 15, 7);
+    else ctx.rect(cx - tw / 2 - 4, cy - 7.5, tw + 8, 15);
+    ctx.fill();
+    ctx.fillStyle = "#fff";
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText(label, cx, cy);
 }
 
 // One axis's constraint line(s). Projects that share the exact same
-// effective value on this axis merge into a single neutral "A+B" line;
-// otherwise each gets its own colored line + tiny label at the line's end.
+// effective value on this axis merge into a single "A+B" line; otherwise
+// each gets its own line + tiny label at the line's end. Lines are always
+// black — the label text (A / B / A+B) already says which project owns it,
+// so color isn't needed as a second channel here.
+const T4_CONSTRAINT_INK = "#111827";
+
 function t4DrawConstraintLine(ctx, attrKey, isVertical, toPx, mL, mT, plotW, plotH) {
     const groups = {}; // effective value -> [projectIdx, ...]
     session.projects.forEach(function (project, idx) {
@@ -278,7 +503,6 @@ function t4DrawConstraintLine(ctx, attrKey, isVertical, toPx, mL, mT, plotW, plo
     Object.keys(groups).forEach(function (rawVal) {
         const idxs = groups[rawVal];
         const merged = idxs.length > 1;
-        const color = merged ? "#555" : (idxs[0] === 1 ? "#0072B2" : "#E69F00");
         const label = merged ? "A+B" : (idxs[0] === 1 ? "B" : "A");
         const pos = toPx(Number(rawVal));
 
@@ -287,13 +511,13 @@ function t4DrawConstraintLine(ctx, attrKey, isVertical, toPx, mL, mT, plotW, plo
         const inRange = isVertical ? (pos >= mL && pos <= mL + plotW) : (pos >= mT && pos <= mT + plotH);
         if (!inRange) return;
 
-        ctx.strokeStyle = color; ctx.lineWidth = 1.2;
+        ctx.strokeStyle = T4_CONSTRAINT_INK; ctx.lineWidth = 1.2;
         ctx.beginPath();
         if (isVertical) { ctx.moveTo(pos, mT); ctx.lineTo(pos, mT + plotH); }
         else { ctx.moveTo(mL, pos); ctx.lineTo(mL + plotW, pos); }
         ctx.stroke();
 
-        ctx.fillStyle = color;
+        ctx.fillStyle = T4_CONSTRAINT_INK;
         if (isVertical) { ctx.textAlign = "center"; ctx.fillText(label, pos, mT - 2); }
         else { ctx.textAlign = "right"; ctx.fillText(label, mL - 2, pos - 2); }
     });
@@ -327,14 +551,21 @@ function t4BuildPatterns(ctx) {
     });
 }
 
-// Panel 3: one vertical bar per pick, split into 6 textured segments showing
-// what fraction of the recipe each scrap family contributes.
+/* ==================================================================
+ * Panel 3: one vertical bar per pick, split into 6 textured segments
+ * showing what fraction of the recipe each scrap family contributes.
+ * Segment labels are dark ink (#111827); a hover tooltip backs up any
+ * segment too short to fit its inline label.
+ * ================================================================== */
+let t4BarHitRegions = []; // { x, y, w, h, famIdx, pct, totalPct } — rebuilt every draw, read by hover
+
 function drawStackedBar(canvas) {
     const hd = setupHiDPICanvas(canvas);
     if (!hd) return;
     const ctx = hd.ctx, W = hd.W, H = hd.H;
     ctx.clearRect(0, 0, W, H);
     if (!t4Patterns) t4Patterns = t4BuildPatterns(ctx);
+    t4BarHitRegions = [];
 
     // Empty state — nothing to show without picks.
     if (session.picks.length === 0) {
@@ -354,6 +585,12 @@ function drawStackedBar(canvas) {
         const row = pipeline.getRow(pick.rowId);
         const x = startX + pi * (barW + gap);
         let yCursor = mT;                          // track where the next segment starts
+
+        // "percentage of this bar" per item 12 — normalized against the sum
+        // of this alloy's own segments, so it's exact even if the recipe
+        // percentages don't add up to precisely 100.
+        const totalPct = SCRAP_FAMILIES.reduce(function (sum, scrap) { return sum + (row[scrap.col] || 0); }, 0) || 1;
+
         SCRAP_FAMILIES.forEach(function (scrap, fi) {
             const pct = row[scrap.col] || 0;       // this scrap's % in the recipe
             const h = (pct / 100) * barH;          // convert % to pixel height
@@ -364,11 +601,13 @@ function drawStackedBar(canvas) {
 
             // % label — only when the segment is tall enough to actually fit one
             if (h > 12) {
-                ctx.fillStyle = "#fff";
+                ctx.fillStyle = "#111827";
                 ctx.font = "9px Inter, sans-serif";
                 ctx.textAlign = "center"; ctx.textBaseline = "middle";
                 ctx.fillText(Math.round(pct) + "%", x + barW / 2, yCursor + h / 2);
             }
+
+            t4BarHitRegions.push({ x: x, y: yCursor, w: barW, h: Math.max(h, 1), famIdx: fi, pct: pct, totalPct: totalPct });
             yCursor += h;
         });
         // Alloy badge under the bar — black, same as the scatter panels
@@ -378,6 +617,43 @@ function drawStackedBar(canvas) {
         ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
         ctx.fillText((pick.project === "B" ? "B" : "A") + pick.number, x + barW / 2, H - 10);
     });
+}
+
+// Hover tooltip over a bar segment: "{Family Name} — {percentage}%",
+// percentage = this family's share of the bar / total share of the bar × 100.
+let t4BarTooltip = null;
+function wireT4BarHover() {
+    t4BarTooltip = document.createElement("div");
+    t4BarTooltip.className = "tooltip";
+    t4BarTooltip.hidden = true;
+    document.body.appendChild(t4BarTooltip);
+
+    const canvas = document.getElementById("canvasT4-bar");
+    canvas.addEventListener("mousemove", function (evt) {
+        const rect = canvas.getBoundingClientRect();
+        const x = evt.clientX - rect.left, y = evt.clientY - rect.top;
+        const hit = t4BarHitRegions.find(function (r) { return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h; });
+        if (!hit) { t4BarTooltip.hidden = true; return; }
+        const pct = (hit.pct / hit.totalPct) * 100;
+        t4BarTooltip.innerHTML = FAMILY_NAMES[hit.famIdx] + " — " + pct.toFixed(1) + "%";
+        t4BarTooltip.style.left = (evt.clientX + window.scrollX + 12) + "px";
+        t4BarTooltip.style.top = (evt.clientY + window.scrollY + 12) + "px";
+        t4BarTooltip.hidden = false;
+    });
+    canvas.addEventListener("mouseleave", function () { t4BarTooltip.hidden = true; });
+}
+
+/* ==================================================================
+ * Canvas alignment (item 9) — panel 2 has a real <select> axis row above
+ * its canvas; panel 1 only has a plain label in the same slot, so its
+ * canvas would otherwise sit a few px higher. Force panel 1's row to match
+ * panel 2's measured height instead of guessing at it in CSS.
+ * ================================================================== */
+function t4SyncPanelHeights() {
+    const reference = document.querySelector("#panelT4-2 .axis-select");
+    const target = document.querySelector("#panelT4-1 .axis-select");
+    if (!reference || !target) return;
+    target.style.minHeight = reference.offsetHeight + "px";
 }
 
 // Attach mouse handlers to the two built-in scatter canvases. Extra panels
@@ -393,7 +669,6 @@ function t4WireCanvas(id) {
     if (!c) return;
     c.addEventListener("mousedown", t4OnCanvasMouseDown);
     c.addEventListener("mousemove", t4OnCanvasMouseMove);
-    c.addEventListener("dblclick", t4OnCanvasDblClick);
 }
 
 function t4CanvasPos(evt) {
@@ -402,40 +677,54 @@ function t4CanvasPos(evt) {
 }
 
 function t4OnCanvasMouseDown(evt) {
+    if (evt.button === 1) {
+        evt.preventDefault(); // stop the browser's middle-click autoscroll from kicking in
+        t4ResetPanelZoom(evt.currentTarget);
+        return;
+    }
+    if (evt.button !== 0) return; // only the left button drags a zoom/pick
     const [x, y] = t4CanvasPos(evt);
     t4ZoomDrag = { canvas: evt.currentTarget, x0: x, y0: y, x1: x, y1: y };
 }
+
+let t4ZoomDrag = null;   // { canvas, x0,y0,x1,y1 } while a zoom drag is in progress
 
 function t4OnCanvasMouseMove(evt) {
     if (!t4ZoomDrag || t4ZoomDrag.canvas !== evt.currentTarget) return;
     const [x, y] = t4CanvasPos(evt);
     t4ZoomDrag.x1 = x; t4ZoomDrag.y1 = y;
-    // FIX P1-style: only redraw the ONE panel being dragged (for the live
-    // rectangle preview) — redrawing every panel's 324k points on every
-    // mousemove would be laggy. The other panels only refit once, on mouseup.
+    // Only redraw the ONE panel being dragged (for the live rectangle
+    // preview) — every other panel is untouched since panels no longer
+    // share zoom state.
     t4RedrawSinglePanel(evt.currentTarget);
 }
 
-// redraws just one scatter canvas, looking up its X/Y attributes the same
-// way renderT4Panels() does for each of the 3 panel "shapes"
+// redraws just one scatter canvas, looking up its panel id the same way
+// renderT4Panels() does for each panel "shape"
 function t4RedrawSinglePanel(canvas) {
-    if (canvas.id === "canvasT4-1") { drawScatterPanel(canvas, "YS", "CSC"); return; }
-    if (canvas.id === "canvasT4-2") {
-        drawScatterPanel(canvas, document.getElementById("t4-2-x").value, document.getElementById("t4-2-y").value);
-        return;
-    }
-    const m = canvas.id.match(/^canvasT4-extra-(\d+)$/);
-    if (m) {
-        const xSel = document.getElementById("t4-extra-" + m[1] + "-x");
-        const ySel = document.getElementById("t4-extra-" + m[1] + "-y");
-        if (xSel && ySel) drawScatterPanel(canvas, xSel.value, ySel.value);
-    }
+    const panelId = t4PanelIdForCanvas(canvas.id);
+    if (panelId) drawScatterPanel(canvas, panelId);
 }
 
-// double-click resets the shared zoom subset -> every panel falls back to
-// its default (intersection-zone) range
-function t4OnCanvasDblClick() {
-    t4ZoomRowIds = null;
+function t4PanelIdForCanvas(canvasId) {
+    if (canvasId === "canvasT4-1") return "1";
+    if (canvasId === "canvasT4-2") return "2";
+    const m = canvasId.match(/^canvasT4-extra-(\d+)$/);
+    return m ? "extra-" + m[1] : null;
+}
+
+// middle-click resets JUST this panel back to its feasible (Project A ∪ B)
+// bbox — panels are independent, so this never touches any other panel's
+// zoom, and it doesn't touch picks/active_set either. "Reset" here means
+// back to the current T2 ∩ T3 selection (not a full reset to the broad
+// project-feasible view) — t4ComputeDefaultBBox only falls back to that
+// broader view when nothing is brushed in T2/T3 at all.
+function t4ResetPanelZoom(canvas) {
+    const panelId = t4PanelIdForCanvas(canvas.id);
+    const panel = t4Panels[panelId];
+    if (!panel || !ATTR_BY_KEY[panel.axisX] || !ATTR_BY_KEY[panel.axisY]) return;
+    panel.userHasZoomed = false;
+    panel.domain = t4ComputeDefaultBBox(ATTR_BY_KEY[panel.axisX], ATTR_BY_KEY[panel.axisY]);
     renderT4Panels();
 }
 
@@ -456,16 +745,26 @@ function t4OnCanvasMouseUp() {
         return;
     }
 
-    // rows whose (x,y) on THIS panel's axes fall inside the dragged
-    // rectangle become the new shared zoom subset for every panel
-    const rowIds = new Set();
-    const active = session.active_set;
-    for (let i = 0; i < session.rowCount; i++) {
-        if (active && !active.has(i)) continue;
-        const px = g.xToPx(g.colX[i]), py = g.yToPx(g.colY[i]);
-        if (px >= x0 && px <= x1 && py >= y0 && py <= y1) rowIds.add(i);
+    // this panel ALONE zooms to the dragged rectangle's data bounds — panels
+    // no longer share zoom state (item 7)
+    const panel = t4Panels[g.panelId];
+    if (panel) {
+        const dataX0 = g.xLo + (x0 - g.mL) / g.plotW * (g.xHi - g.xLo);
+        const dataX1 = g.xLo + (x1 - g.mL) / g.plotW * (g.xHi - g.xLo);
+        const dataY0 = g.yHi - (y1 - g.mT) / g.plotH * (g.yHi - g.yLo);
+        const dataY1 = g.yHi - (y0 - g.mT) / g.plotH * (g.yHi - g.yLo);
+        let xMin = Math.min(dataX0, dataX1), xMax = Math.max(dataX0, dataX1);
+        let yMin = Math.min(dataY0, dataY1), yMax = Math.max(dataY0, dataY1);
+        // an axis-only drag (real mouse/trackpad jitter easily moves in just
+        // one direction) leaves that axis's span at ~0 — left unguarded,
+        // xToPx/yToPx then divide by zero, every point renders at NaN, and
+        // every future click's distance check silently fails (NaN <= r is
+        // always false) — permanently "breaking" picking on this panel
+        if (xMax - xMin < 1e-9) { const pad = (g.xHi - g.xLo) * 0.01 || 1; xMin -= pad; xMax += pad; }
+        if (yMax - yMin < 1e-9) { const pad = (g.yHi - g.yLo) * 0.01 || 1; yMin -= pad; yMax += pad; }
+        panel.domain = { xMin: xMin, xMax: xMax, yMin: yMin, yMax: yMax };
+        panel.userHasZoomed = true;
     }
-    if (rowIds.size > 0) t4ZoomRowIds = rowIds;
     renderT4Panels();
 }
 
@@ -501,8 +800,8 @@ function t4HandlePickClick(g, px, py) {
     // Step 3: toggle. Remove if already picked (whichever project it's in —
     // an existing badge is always removable regardless of the active
     // toggle); otherwise add it to whichever project is currently active.
-    // FIX M1: .slice() only copies the ARRAY — the pick objects inside were
-    // still the same live references as session.picks, so renumbering below
+    // .slice() only copies the ARRAY — the pick objects inside were still
+    // the same live references as session.picks, so renumbering below
     // used to mutate session directly. Copy each pick object too.
     const picks = session.picks.map(function (p) { return { rowId: p.rowId, number: p.number, project: p.project }; });
     const existing = picks.findIndex(function (p) { return p.rowId === bestIdx; });
@@ -522,12 +821,13 @@ function t4HandlePickClick(g, px, py) {
     pipeline.set("picks", picks);                // T5 and T6 will see this and redraw
 }
 
-// "+ Add plot" — spawns another custom scatter panel with its own X/Y dropdowns.
-// Capped at T4_MAX_EXTRA_PLOTS extras (so a max of 5 panels total).
+// "+ Add plot" — spawns another custom scatter panel with its own X/Y dropdowns,
+// seeded from session.axisQueue. Capped at T4_MAX_EXTRA_PLOTS extras.
 function addScatterPlot() {
     if (t4ExtraPanelCount >= T4_MAX_EXTRA_PLOTS) return;
     t4ExtraPanelCount += 1;
     const n = t4ExtraPanelCount;
+    const id = "extra-" + n;
 
     // Build the new panel's HTML by hand and stitch it into the extras row.
     const panel = document.createElement("div");
@@ -541,14 +841,20 @@ function addScatterPlot() {
         '<canvas id="canvasT4-extra-' + n + '" width="360" height="240"></canvas>';
     document.getElementById("t4ExtraPlots").appendChild(panel);
 
-    // New panels start with blank dropdowns so the user has to pick attributes
-    // deliberately — nothing is auto-copied from the other panels.
-    populateAxisSelect(document.getElementById("t4-extra-" + n + "-x"), null);
-    populateAxisSelect(document.getElementById("t4-extra-" + n + "-y"), null);
+    const picked = t4PickAxisForNewPanel();
+    const bbox = t4ComputeDefaultBBox(ATTR_BY_KEY[picked.axisX], ATTR_BY_KEY[picked.axisY]);
+    if (picked.presetXRange) {
+        const [lo, hi] = t4DenormRange(picked.axisX, picked.presetXRange);
+        bbox.xMin = lo; bbox.xMax = hi;
+    }
+    t4Panels[id] = { axisX: picked.axisX, axisY: picked.axisY, userHasZoomed: false, domain: bbox };
+
+    populateAxisSelect(document.getElementById("t4-extra-" + n + "-x"), picked.axisX);
+    populateAxisSelect(document.getElementById("t4-extra-" + n + "-y"), picked.axisY);
 
     // Same wiring as the built-in panels: dropdown change → redraw; drag → zoom; click → pick.
-    document.getElementById("t4-extra-" + n + "-x").addEventListener("change", renderT4Panels);
-    document.getElementById("t4-extra-" + n + "-y").addEventListener("change", renderT4Panels);
+    document.getElementById("t4-extra-" + n + "-x").addEventListener("change", function () { t4OnAxisSelectChanged(id, "axisX", this.value); });
+    document.getElementById("t4-extra-" + n + "-y").addEventListener("change", function () { t4OnAxisSelectChanged(id, "axisY", this.value); });
     t4WireCanvas("canvasT4-extra-" + n);
 
     // Once we've maxed out, gray out the button so nobody can spawn more.
@@ -561,6 +867,7 @@ function addScatterPlot() {
 // Fill a <select> with one <option> per attribute. Pass defKey to pre-select
 // one; pass null to make it start blank with a "-- Choose axis --" placeholder.
 function populateAxisSelect(selectEl, defKey) {
+    selectEl.innerHTML = "";
     if (defKey === null) {
         const blank = document.createElement("option");
         blank.value = "__none__";

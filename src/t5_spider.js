@@ -61,25 +61,13 @@ function spiderNorm(attrKey, rawValue) {
     return Math.max(0, Math.min(1, n));
 }
 
-// picks belonging to a given project slot (A = 0, B = 1). In single-project
-// mode every pick belongs to A.
-function picksForProject(projIdx) {
-    const wantB = projIdx === 1;
-    return session.picks.filter(function (p) {
-        const isB = p.project === "B";
-        return wantB ? isB : !isB;
-    });
-}
-
 function renderT5Spiders() {
     const dual = session.projects.length > 1;
     document.getElementById("canvasT5-B").hidden = !dual;
     document.getElementById("placeholderT5").hidden = session.picks.length > 0;
 
-    // compute stock alerts first; drawing then reads the amber flags from it
-    const alerts = computeStockAlerts();
-    pipeline.set("stock_alerts", alerts);
-
+    // session.stock_alerts is already fresh here — pipeline.set() recomputes
+    // it before "picks"/"projects" listeners (this one included) fire
     drawSpider("canvasT5-A", 0);
     if (dual) drawSpider("canvasT5-B", 1);
 
@@ -230,51 +218,9 @@ function drawSpiderLegend(ctx, picks, project, legendTop, rowH) {
 }
 
 //STOCK ALLERTS
-
-// recipe fraction (0-1) of a scrap family within an alloy: input column is a
-// percentage, so divide by 100
-function recipeFraction(rowId, scrapCol) {
-    const v = session.columns[scrapCol] ? session.columns[scrapCol][rowId] : 0;
-    return (v || 0) / 100;
-}
-
-function computeStockAlerts() {
-    const alerts = [];
-    if (!session.loaded || session.picks.length === 0) return alerts;
-
-    const aPicks = picksForProject(0);
-    const bPicks = picksForProject(1);
-    const dual = session.projects.length > 1;
-    const batchA = session.projects[0] ? session.projects[0].batch_kg : 1000;
-    const batchB = session.projects[1] ? session.projects[1].batch_kg : 1000;
-
-    SCRAP_FAMILIES.forEach(function (fam) {
-        const available = session.stock[fam.key];
-        if (available == null) return;
-
-        // single-project check: each pick on its own vs available stock
-        session.picks.forEach(function (pick) {
-            const isB = pick.project === "B";
-            const batch = isB ? batchB : batchA;
-            if (recipeFraction(pick.rowId, fam.col) * batch > available) {
-                alerts.push({ type: "single", scrap: fam.key, rowId: pick.rowId, project: isB ? "B" : "A" });
-            }
-        });
-
-        if (dual) {
-            aPicks.forEach(function (a) {
-                bPicks.forEach(function (b) {
-                    const demand = recipeFraction(a.rowId, fam.col) * batchA
-                                 + recipeFraction(b.rowId, fam.col) * batchB;
-                    if (demand > available) {
-                        alerts.push({ type: "combined", scrap: fam.key, rowIdA: a.rowId, rowIdB: b.rowId });
-                    }
-                });
-            });
-        }
-    });
-    return alerts;
-}
+// recipeFraction / picksForProject / the actual alert computation now live
+// in pipeline.js (recomputeStockAlerts) so every view reads the same
+// already-fresh session.stock_alerts instead of each computing its own.
 
 // does any stock alert implicate this specific pick? (used to draw amber rings)
 function pickHasStockAlert(pick) {
