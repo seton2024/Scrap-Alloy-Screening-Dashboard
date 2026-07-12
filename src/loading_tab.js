@@ -173,16 +173,15 @@ const KDE_SAMPLE = 1500;
 function computeKdeCache(columns, labels, rowCount) {
     const cache = {};
     // bucket row indices by family once, so we don't rescan the labels
-    // array 14 separate times
-    const familyRows = [[], [], [], [], [], []]; // Mixed (6) excluded from violins
+    // array 14 separate times. 7 buckets: the 6 named families + Mixed (6).
+    const familyRows = [[], [], [], [], [], [], []];
     for (let i = 0; i < rowCount; i++) {
-        const fam = labels[i];
-        if (fam < 6) familyRows[fam].push(i);
+        familyRows[labels[i]].push(i);
     }
 
     ATTRIBUTES.forEach(function (attr) {
         cache[attr.key] = {};
-        for (let fam = 0; fam < 6; fam++) {
+        for (let fam = 0; fam < 7; fam++) {
             cache[attr.key][fam] = computeOneViolin(columns[attr.col], attr.key, familyRows[fam]);
         }
     });
@@ -232,6 +231,13 @@ async function runLoadingSequence() {
     document.getElementById("progressStepLabel").textContent = "Dataset ready.";
 
     pipeline.set("loaded", true);
+    // "+ Add Project" reads session.norm_table (T1's out-of-range validation)
+    // and session.projects (T2's pre-filter dimming) — both are meaningless
+    // before load finishes. openPage() only re-evaluates the button's hidden
+    // state when a tab is clicked, so if the user is already sitting on the
+    // Dashboard tab when loading completes, nothing would otherwise unhide
+    // the button — re-check it here too.
+    updateAddProjectBtnVisibility();
 
     currentPage = 0;
     document.getElementById("dataPreviewPanel").hidden = false;
@@ -314,15 +320,25 @@ function familyLabelName(rowIndex) {
     return FAMILY_NAMES[session.family_labels[rowIndex]] || "N/A";
 }
 
-// switches and displays the tabs; "+ Add Project" only makes sense once
-// the Dashboard workflow (T1-T6) is visible
+// "+ Add Project" only makes sense once BOTH the Dashboard tab is showing
+// AND the dataset has actually finished loading (T1's out-of-range check and
+// T2's pre-filter dimming both read data - session.norm_table, session.
+// columns - that doesn't exist until session.loaded is true). Previously this
+// only checked the tab, so the modal was reachable (and silently broken -
+// e.g. the out-of-range check always no-op'd) before any file was uploaded.
+function updateAddProjectBtnVisibility() {
+    const dashboardActive = document.getElementById("Dashboard").classList.contains("active");
+    document.getElementById("addProjectBtn").hidden = !dashboardActive || !session.loaded;
+}
+
+// switches and displays the tabs
 function openPage(pageName, elmnt) {
     document.querySelectorAll(".tabcontent").forEach(function (el) { el.classList.remove("active"); });
     document.querySelectorAll(".tablink").forEach(function (el) { el.classList.remove("active"); });
     document.getElementById(pageName).classList.add("active");
     elmnt.classList.add("active");
 
-    document.getElementById("addProjectBtn").hidden = pageName !== "Dashboard";
+    updateAddProjectBtnVisibility();
 
     // The dashboard canvases size themselves to their displayed dimensions,
     // but that only works once they're actually visible. The first render

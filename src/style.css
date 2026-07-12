@@ -377,6 +377,13 @@ h1, h2, h3, h4 { font-family: var(--font-base); margin: 0 0 var(--space-2); }
     overflow: auto;
 }
 
+.view-legend {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-bottom: var(--space-2);
+    line-height: 1.5;
+}
+
 .view-body canvas {
     background: var(--canvas-bg);
     width: 100%;
