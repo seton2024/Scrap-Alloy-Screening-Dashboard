@@ -9,7 +9,8 @@ Everything heavy is computed here, ONCE, offline. This script produces:
                                                index
 
 Usage:
-    python precompute.py --input <dataset.txt> --outdir <folder>
+    python precompute.py --input <dataset.txt>
+    python precompute.py --input <dataset.txt> --add-stock-column (to only add stock=10000 for T5 exploration)
 """
 
 import argparse
@@ -63,7 +64,8 @@ UMAP_MIN_DIST = 0.1
 RANDOM_STATE = 42
 KDE_GRID = 200                # points per violin curve (report SS4.4)
 KDE_SAMPLE = 4000             # subsample per family for KDE speed (visually identical)
-GRID_COLS = 28                # T2 overview grid width (rows derived from aspect)
+GRID_COLS = 55
+T2_CANVAS_W, T2_CANVAS_H = 1100, 320   # same as <canvas id="canvasT2"> in index.html
 TUNE_SAMPLE, TUNE_MIN = 35_000, 30   # min_count=30 was tuned on 35k -> scale by density
 
 
@@ -161,7 +163,7 @@ def _family_centroid(cells, coords, labels, family):
 
 
 def compute_spatial_grid(coords, labels, df):
-    #T2 overview: a coarse square grid over the embedding, 
+    #T2 overview: a coarse grid over the embedding, shaped to match the canvas it will render on 1100x320
     n = len(coords)
     min_count = max(TUNE_MIN, round(TUNE_MIN * n / TUNE_SAMPLE))
 
@@ -169,13 +171,14 @@ def compute_spatial_grid(coords, labels, df):
     y0, y1 = float(coords[:, 1].min()), float(coords[:, 1].max())
     sx, sy = (x1 - x0) * 0.02, (y1 - y0) * 0.02      # 2% padding
     x0 -= sx; x1 += sx; y0 -= sy; y1 += sy
-    rows = max(1, round(GRID_COLS * (y1 - y0) / (x1 - x0)))
+    rows = max(1, round(GRID_COLS * T2_CANVAS_H / T2_CANVAS_W))
 
     ix = np.clip(((coords[:, 0] - x0) / (x1 - x0) * GRID_COLS).astype(int), 0, GRID_COLS - 1)
     iy = np.clip(((coords[:, 1] - y0) / (y1 - y0) * rows).astype(int), 0, rows - 1)
 
     ys = df["YS(MPa)"].values
     csc = df["CSC"].values
+    stock = df["stock"].values if "stock" in df.columns else None  # only present with --add-stock-column
 
     buckets = defaultdict(list)
     for p in range(n):
@@ -185,7 +188,7 @@ def compute_spatial_grid(coords, labels, df):
     for (gx, gy), pos in buckets.items():
         pos = np.array(pos)
         bc = np.bincount(labels[pos], minlength=7)
-        cells.append({
+        cell = {
             "gx": gx, "gy": gy,
             "cx": round(float(coords[pos, 0].mean()), 4),   # member centroid
             "cy": round(float(coords[pos, 1].mean()), 4),
@@ -196,7 +199,10 @@ def compute_spatial_grid(coords, labels, df):
             "ys_med": round(float(np.median(ys[pos])), 1),
             "csc_med": round(float(np.median(csc[pos])), 3),
             "rowIds": [int(r) for r in pos],
-        })
+        }
+        if stock is not None:
+            cell["stock_med"] = round(float(np.median(stock[pos])), 1)
+        cells.append(cell)
 
     # completeness guards: every row must land in exactly one cell
     total_count = sum(c["count"] for c in cells)
@@ -238,6 +244,8 @@ def _dump(obj, path):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", required=True)
+    parser.add_argument("--add-stock-column", action="store_true",
+                         help="add a 'stock' column, value 10000 on every row")
 
     args = parser.parse_args()
 
@@ -248,7 +256,10 @@ def main():
     df = load_dataset(args.input)
     checkpoint(f"[1/6] Loaded {len(df):,} rows x {df.shape[1]} cols")
 
-  
+    if args.add_stock_column:
+        df["stock"] = 10000
+        checkpoint("[1/6] --add-stock-column: added 'stock' column, value 10000 on every row")
+
     checkpoint("[2/6] Family labels (argmax + <=2pp Mixed rule)")
     labels = compute_family_labels(df)
     counts = np.bincount(labels, minlength=7)
