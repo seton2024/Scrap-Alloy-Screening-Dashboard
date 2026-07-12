@@ -3,11 +3,11 @@
 * Owner: P2 · Branch: p2-ui
 * See docs/nested_model_L1_L2_L3_L4_report.md §4.0.1, §4.0.2
 *
-* The real pipeline runs steps 1-9 in a Web Worker (future work, once
-* data/precompute.py output files exist). Parsing (step 1) already runs in
-* parse_worker.js so the main thread — and the progress animation — never
-* freezes while the file is read. The remaining steps are simulated here
-* until their data/*.npy / *.json outputs exist.
+* Fetch-only loading: the heavy computation (UMAP, family labels, norm
+* table, KDE curves, spatial grid) already ran once, offline, in
+* data/precompute.py. All of it — plus parsing the raw dataset file — runs
+* in parse_worker.js so the main thread and its progress animation never
+* freeze. This file just drives the worker and renders its result.
 */
 
 // non-ASCII written as \u escapes so the labels render correctly regardless
@@ -15,18 +15,15 @@
 const LOADING_STEPS = [
     "Parsing dataset (tab-separated, Latin-1)…",
     "Loading precomputed UMAP coordinates…",
-    "Computing scrap-family labels…",
-    "Loading precomputed blob contours…",
-    "Computing normalization table (min/max per column)…",
-    "Computing violin KDE curves (14 × 6)…",
-    "Building quadtree spatial index…",
+    "Loading scrap-family labels…",
+    "Loading normalization table…",
+    "Loading violin KDE curves…",
+    "Loading spatial grid…",
     "Loading stock data…",
     "Finalizing…"
 ];
 
-// rows shown per data-preview page; bumped up from the report's original
-// 100/page so a single page surfaces more of the dataset at once
-const PAGE_SIZE = 500;
+const PAGE_SIZE = 100;
 let currentPage = 0;
 
 function init() {
@@ -49,13 +46,20 @@ function handleFileSelected(event) {
     if (!file) return;
 
     resetLoadingUi();
-    beginStep(0); // immediate feedback, before the (potentially slow) parse starts
+    beginStep(0); // immediate feedback, before the worker's first message arrives
 
     const worker = new Worker("parse_worker.js");
     worker.onmessage = function (e) {
-        finishParseStep(e.data);
+        const msg = e.data;
+        if (msg.type === "step") { beginStep(msg.index); return; }
+        if (msg.type === "error") {
+            console.error("parse_worker.js failed:", msg.message);
+            document.getElementById("progressStepLabel").textContent = "Failed to load: " + msg.message;
+            worker.terminate();
+            return;
+        }
+        finishLoading(msg); // msg.type === "done"
         worker.terminate();
-        runLoadingSequence();
     };
     worker.onerror = function (err) {
         console.error("parse_worker.js failed:", err.message);
@@ -80,159 +84,48 @@ function beginStep(index) {
     fill.style.width = Math.round(((index + 1) / total) * 100) + "%";
 }
 
-// first column: a stable per-row identifier (report §pre-coding checklist,
-// "alloy naming convention decided") — the dataset itself has no names
+// first column: a stable per-row identifier — the dataset itself has no names
 function generateMixtureIds(rowCount) {
     const ids = new Array(rowCount);
     for (let i = 0; i < rowCount; i++) ids[i] = "Mixture " + (i + 1);
     return ids;
 }
 
-function finishParseStep(workerResult) {
-    // "Mixture ID" is inserted first so it renders as the 1st column
-    // (object key insertion order is preserved for non-numeric string keys)
-    const columns = { "Mixture ID": generateMixtureIds(workerResult.rowCount) };
-    workerResult.columnNames.forEach(function (col) {
-        columns[col] = workerResult.columns[col];
-    });
+// everything the worker fetched/parsed lands here in one shot; write session
+// fields in dependency order and "loaded" last (subscribers read the rest of
+// session when it fires)
+function finishLoading(result) {
+    session.rowCount = result.rowCount; // set before "columns" — subscribers may read it
+
+    // "Mixture ID" inserted first so it renders as the 1st preview column
+    const columns = { "Mixture ID": generateMixtureIds(result.rowCount) };
+    result.columnNames.forEach(function (col) { columns[col] = result.columns[col]; });
     pipeline.set("columns", columns);
-    session.rowCount = workerResult.rowCount;
-}
 
-function computeNormTable(columns) {
-    const table = {};
-    for (const col in columns) {
-        const values = columns[col].filter(function (v) { return typeof v === "number"; });
-        if (values.length === 0) continue;
-        table[col] = { min: d3.min(values), max: d3.max(values) };
-    }
-    return table;
-}
+    pipeline.set("umap", result.umap);
+    pipeline.set("family_labels", result.familyLabels);
+    pipeline.set("norm_table", result.normTable);
+    pipeline.set("kde_cache", result.kdeCache);
+    pipeline.set("quadtree", result.spatialGrid); // uniform grid doubles as the T2 spatial index
+    pipeline.set("stock", result.stock);
 
-// Dominant-scrap classification (report §2.3): each alloy's family is the
-// argmax of its 6 input mixing ratios — UNLESS the top two are within 2
-// percentage points of each other, in which case it's "Mixed" (index 6).
-// Result is a compact Uint8Array (one byte per row, values 0-6).
-function computeFamilyLabels(columns, rowCount) {
-    const inputCols = SCRAP_FAMILIES.map(function (f) { return columns[f.col]; });
-    const labels = new Uint8Array(rowCount);
-    for (let i = 0; i < rowCount; i++) {
-        let bestIdx = 0, best = -Infinity, second = -Infinity;
-        for (let f = 0; f < inputCols.length; f++) {
-            const v = inputCols[f][i];
-            if (v > best) { second = best; best = v; bestIdx = f; }
-            else if (v > second) { second = v; }
-        }
-        labels[i] = (best - second) <= 2.0 ? 6 : bestIdx; // 6 = Mixed
-    }
-    return labels;
-}
-
-// A Gaussian kernel evaluated at u (report §4.4): (1/√(2π)) e^(−u²/2).
-const INV_SQRT_2PI = 1 / Math.sqrt(2 * Math.PI);
-function gaussianKernel(u) { return INV_SQRT_2PI * Math.exp(-0.5 * u * u); }
-
-// 1D KDE per attribute per family, on a fixed 200-point grid over the
-// normalized [0,1] axis (report §4.4). We subsample each family to at most
-// KDE_SAMPLE points — a naive KDE over all 324,632 rows × 200 grid points ×
-// 84 curves would be billions of operations, and for a *visual* density a
-// few thousand representative points are indistinguishable from all of them.
-const KDE_GRID = 200;
-const KDE_SAMPLE = 1500;
-
-function computeKdeCache(columns, labels, rowCount) {
-    const cache = {};
-    // bucket row indices by family once, so we don't rescan the labels
-    // array 14 separate times
-    const familyRows = [[], [], [], [], [], []]; // Mixed (6) excluded from violins
-    for (let i = 0; i < rowCount; i++) {
-        const fam = labels[i];
-        if (fam < 6) familyRows[fam].push(i);
-    }
-
-    ATTRIBUTES.forEach(function (attr) {
-        cache[attr.key] = {};
-        for (let fam = 0; fam < 6; fam++) {
-            cache[attr.key][fam] = computeOneViolin(columns[attr.col], attr.key, familyRows[fam]);
-        }
-    });
-    return cache;
-}
-
-function computeOneViolin(colArray, attrKey, rowIdxs) {
-    // gather + normalize (with lower-is-better inversion baked in) + subsample
-    const step = Math.max(1, Math.floor(rowIdxs.length / KDE_SAMPLE));
-    const sample = [];
-    for (let k = 0; k < rowIdxs.length; k += step) {
-        const nv = pipeline.normAttr(attrKey, colArray[rowIdxs[k]]);
-        if (nv !== null && !isNaN(nv)) sample.push(nv);
-    }
-    const density = new Float32Array(KDE_GRID);
-    const n = sample.length;
-    if (n === 0) return density;
-
-    // Scott's rule bandwidth for 1D data: h = n^(−1/5) × σ
-    const mean = sample.reduce(function (s, v) { return s + v; }, 0) / n;
-    let variance = 0;
-    for (let k = 0; k < n; k++) { const d = sample[k] - mean; variance += d * d; }
-    const std = Math.sqrt(variance / n) || 0.05; // guard against a zero-width family
-    const h = Math.pow(n, -1 / 5) * std || 0.02;
-
-    for (let g = 0; g < KDE_GRID; g++) {
-        const x = g / (KDE_GRID - 1); // grid point in [0,1]
-        let sum = 0;
-        for (let k = 0; k < n; k++) sum += gaussianKernel((x - sample[k]) / h);
-        density[g] = sum / (n * h);
-    }
-    return density;
-}
-
-async function runLoadingSequence() {
     const fill = document.getElementById("progressFill");
-    const total = LOADING_STEPS.length;
-
-    // step 0 (parse) already ran in parse_worker.js before this was called
-    for (let i = 1; i < total; i++) {
-        beginStep(i);
-        await runLoadingStep(i);
-    }
-
     fill.classList.remove("is-active");
     fill.classList.add("is-complete");
     document.getElementById("progressStepLabel").textContent = "Dataset ready.";
 
     pipeline.set("loaded", true);
+    // "+ Add Project" reads session.norm_table (T1's out-of-range validation)
+    // and session.projects (T2's pre-filter dimming) — both are meaningless
+    // before load finishes. openPage() only re-evaluates the button's hidden
+    // state when a tab is clicked, so if the user is already sitting on the
+    // Dashboard tab when loading completes, nothing would otherwise unhide
+    // the button — re-check it here too.
+    updateAddProjectBtnVisibility();
 
     currentPage = 0;
     document.getElementById("dataPreviewPanel").hidden = false;
     renderPreviewPage();
-}
-
-function runLoadingStep(index) {
-    return new Promise(function (resolve) {
-        switch (index) {
-            case 2: // scrap-family labels (real, computed from the 6 input columns)
-                pipeline.set("family_labels", computeFamilyLabels(session.columns, session.rowCount));
-                return resolve();
-            case 4: // normalization table (real, self-contained)
-                pipeline.set("norm_table", computeNormTable(session.columns));
-                return resolve();
-            case 5: // violin KDE curves (real; needs norm_table from step 4 + labels from step 2)
-                pipeline.set("kde_cache", computeKdeCache(session.columns, session.family_labels, session.rowCount));
-                return resolve();
-            case 7: // stock data (real, self-contained; falls back to {} offline)
-                if (typeof loadStockCSV === "function") {
-                    loadStockCSV("../data/stock.csv", function () { resolve(); });
-                    return;
-                }
-                return resolve();
-            default:
-                // steps 1, 3, 6, 8: depend on data/precompute.py outputs
-                // (umap_coords.npy, blob_contours.json) and the quadtree
-                // build — simulated here until those files exist.
-                return setTimeout(resolve, 200);
-        }
-    });
 }
 
 function renderPreviewPage() {
@@ -277,15 +170,25 @@ function familyLabelName(rowIndex) {
     return FAMILY_NAMES[session.family_labels[rowIndex]] || "N/A";
 }
 
-// switches and displays the tabs; "+ Add Project" only makes sense once
-// the Dashboard workflow (T1-T6) is visible
+// "+ Add Project" only makes sense once BOTH the Dashboard tab is showing
+// AND the dataset has actually finished loading (T1's out-of-range check and
+// T2's pre-filter dimming both read data - session.norm_table, session.
+// columns - that doesn't exist until session.loaded is true). Previously this
+// only checked the tab, so the modal was reachable (and silently broken -
+// e.g. the out-of-range check always no-op'd) before any file was uploaded.
+function updateAddProjectBtnVisibility() {
+    const dashboardActive = document.getElementById("Dashboard").classList.contains("active");
+    document.getElementById("addProjectBtn").hidden = !dashboardActive || !session.loaded;
+}
+
+// switches and displays the tabs
 function openPage(pageName, elmnt) {
     document.querySelectorAll(".tabcontent").forEach(function (el) { el.classList.remove("active"); });
     document.querySelectorAll(".tablink").forEach(function (el) { el.classList.remove("active"); });
     document.getElementById(pageName).classList.add("active");
     elmnt.classList.add("active");
 
-    document.getElementById("addProjectBtn").hidden = pageName !== "Dashboard";
+    updateAddProjectBtnVisibility();
 
     // The dashboard canvases size themselves to their displayed dimensions,
     // but that only works once they're actually visible. The first render
@@ -298,6 +201,7 @@ function openPage(pageName, elmnt) {
 // they always match their current on-screen size for crisp output)
 function rerenderDashboard() {
     if (!session.loaded) return;
+    if (typeof renderT2 === "function") renderT2();
     if (typeof renderT3 === "function") renderT3();
     if (typeof renderT5Spiders === "function") renderT5Spiders();
 }

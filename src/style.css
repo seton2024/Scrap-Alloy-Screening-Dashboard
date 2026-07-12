@@ -377,6 +377,13 @@ h1, h2, h3, h4 { font-family: var(--font-base); margin: 0 0 var(--space-2); }
     overflow: auto;
 }
 
+.view-legend {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-bottom: var(--space-2);
+    line-height: 1.5;
+}
+
 .view-body canvas {
     background: var(--canvas-bg);
     width: 100%;
@@ -389,6 +396,10 @@ h1, h2, h3, h4 { font-family: var(--font-base); margin: 0 0 var(--space-2); }
    be pinned in CSS instead — otherwise the canvas would grow to whatever the
    backing-store height happens to be. */
 #canvasT3 { height: 360px; }
+
+/* T2's UMAP embedding is roughly square (see spatial_grid.json meta.extent) —
+   give it more height than T3 so it isn't squeezed into a short wide strip. */
+#canvasT2 { height: 520px; }
 
 /* placeholder state shown until session.loaded === true (§4.0) */
 .view-placeholder {

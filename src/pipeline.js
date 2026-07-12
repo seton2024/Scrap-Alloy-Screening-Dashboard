@@ -1,13 +1,12 @@
-/*
-* pipeline.js — shared cross-view session state + shared config
-* Implements the state shape agreed in docs/pipeline_contract.md.
-*
-* T1 (t1_modal.js) is the sole writer of session.projects.
-* The loading tab (loading_tab.js) is the sole writer of the dataset fields
-* (columns, family_labels, norm_table, kde_cache, stock) and of session.loaded.
-* Every other view is a read-only consumer: subscribe with
-* pipeline.onChange(key, callback) and re-render when notified.
-*/
+// pipeline.js — shared cross-view session state + shared config
+
+// T1 (t1_modal.js) is the sole writer of session.projects.
+
+// The loading tab (loading_tab.js) is the sole writer of the dataset fields
+
+// Every other view is a read-only consumer: subscribe with
+// pipeline.onChange(key, callback) and re-render when notified.
+
 
 const session = {
     loaded: false,
@@ -24,7 +23,7 @@ const session = {
     rowCount: 0,
 
     // T1 (session.projects is the only field T1 is allowed to write)
-    projects: [],            // 1 or 2 entries, see docs/pipeline_contract.md
+    projects: [],            // 1 or 2 entries, 
 
     // cross-view selection state
     brush_t2: null,           // { rowIds: Set } | null
@@ -34,24 +33,8 @@ const session = {
     stock_alerts: []          // { type: 'single'|'combined', ... }
 };
 
-/* ==================================================================
- * SHARED CONFIG — single source of truth for every view
- * ================================================================== */
+// SHARED CONFIG — single source of truth for every view
 
-// The 14 interactive attributes. `col` is the EXACT column name in
-// Dataset_VisContest_Rapid_Alloy_development_v3.txt. Three of them contain a
-// degree sign; we write it as the ASCII escape ° (not a literal °) so
-// the match works no matter what text encoding the browser guesses for this
-// .js file — a literal ° saved as UTF-8 becomes "A°" if the file is read as
-// Latin-1, which silently breaks column matching. Same reasoning for the ·,
-// ², ³ in the display labels. `tier` splits the primary 7 (always shown)
-// from the secondary 7 (behind "See more"). Directions/margins are
-// domain-grounded (report §2.4, §2.6, §4.1.1).
-// "°C" built from a char code so the source stays pure ASCII. This makes the
-// three degree-sign column names match the dataset regardless of how the
-// browser decodes this .js file — the one thing that MUST work for the data
-// to bind. (Cosmetic labels below still use literal ·/²/³ and rely on the
-// page being served/opened as UTF-8, which is the normal case.)
 const DEG_C = String.fromCharCode(0xB0) + "C";
 
 const ATTRIBUTES = [
@@ -93,15 +76,33 @@ const SCRAP_FAMILIES = [
 
 // index 0-6; matches the Uint8Array codes written into session.family_labels
 const FAMILY_NAMES    = ["KS1295", "6082", "2024", "bat-box", "3003", "4032", "Mixed"];
-// Wong / Okabe-Ito colorblind-safe palette (report §3.2.1)
+// Wong / Okabe-Ito colorblind-safe palette
 const FAMILY_COLORS   = ["#E69F00", "#56B4E9", "#009E73", "#0072B2", "#D55E00", "#CC79A7", "#888888"];
-// redundant texture channel, so families stay distinct in grayscale (§3.2.1)
-const FAMILY_TEXTURES = ["solid", "horizontal", "dots", "diagonal", "crosshatch", "vertical", "stipple"];
+// redundant texture channel, so families stay distinct in grayscale
+const FAMILY_TEXTURES = ["solid", "horizontal", "dots", "diagonal", "crosshatch", "vertical", "wave"];
+//redundant markers for families, so they stay distinct in b/w print
+const FAMILY_MARKERS  = ["circle", "square", "triangle", "diamond", "cross", "plus", "star"];
 
-/* ==================================================================
- * PIPELINE — the publish/subscribe hub
- * ================================================================== */
+// so the html can display these symbols
+function escapeHtml(str) {
+    return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+}
 
+// format a numeric value for display in tooltip and messeges
+function formatRangeValue(v) {
+    if (v === 0) return "0";
+    const abs = Math.abs(v);
+    if (abs < 0.001 || abs >= 100000) return v.toExponential(2);
+    return String(parseFloat(v.toPrecision(4)));
+}
+
+// PIPELINE — the publish/subscribe hub
+ 
 const pipeline = (function () {
     const listeners = {};
 
@@ -114,14 +115,14 @@ const pipeline = (function () {
     }
 
     // assign + notify subscribers in one call. Brush changes additionally
-    // trigger an active_set recompute (T2 ∩ T3), per docs/pipeline_contract.md.
+    // trigger an active_set recompute (T2 ∩ T3)
     function set(key, value) {
         session[key] = value;
         emit(key);
         if (key === "brush_t2" || key === "brush_t3") recomputeActiveSet();
     }
 
-    // reconstruct one row on demand from the column-store (§4.0.1)
+    // reconstruct one row on demand from the column-store
     function getRow(rowIndex) {
         const row = {};
         for (const col in session.columns) {
@@ -131,8 +132,7 @@ const pipeline = (function () {
     }
 
     // normalize a raw attribute value to [0,1] where 1 = "best". For
-    // lower-is-better attributes the scale is inverted, so on every view
-    // "further right / further out = better" holds consistently.
+    // lower-is-better attributes the scale is inverted
     function normAttr(key, rawValue) {
         const a = ATTR_BY_KEY[key];
         if (!a) return null;
@@ -183,21 +183,10 @@ const pipeline = (function () {
     };
 })();
 
-/* ==================================================================
- * Canvas helper — crisp rendering on high-DPI screens
- * ==================================================================
- * A <canvas> has two sizes: its backing store (the real pixel grid, set by
- * the width/height attributes) and its displayed size (set by CSS). If they
- * differ — because CSS stretches it, or because a Retina screen packs 2+
- * physical pixels per CSS pixel — the browser upscales the bitmap and it
- * looks blurry. This sizes the backing store to (displayed size ×
- * devicePixelRatio) and scales the drawing context to match, so 1 drawing
- * unit = 1 CSS pixel but everything is rendered at full physical resolution.
- *
- * Returns { ctx, W, H } with W/H in CSS pixels — do ALL drawing and mouse
- * hit-testing in those units. Returns null if the canvas isn't visible yet
- * (zero-sized), so callers should skip drawing and re-render once it shows.
- */
+// Canvas helper — crisp rendering on high-DPI screens
+//  if backing store and displayed size (set by CSS) differ this sizes the backing store to 
+// (displayed size × devicePixelRatio) and scales the drawing context to match
+
 function setupHiDPICanvas(canvas) {
     const rect = canvas.getBoundingClientRect();
     if (!rect.width || !rect.height) return null;
