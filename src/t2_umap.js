@@ -90,51 +90,11 @@ function t2BuildPatterns(ctx) {
     });
 }
 
-// stroke-only marker per FAMILY_MARKERS (pipeline.js), centered at (px,py)
-// with characteristic size r. Used for fringe cells only — majors stay
-// circular filled bubbles per the T2 spec.
+// stroke-only marker per FAMILY_MARKERS (pipeline.js's shared
+// drawFamilyMarker), centered at (px,py) with characteristic size r. Used
+// for fringe cells only — majors stay circular filled bubbles per the T2 spec.
 function t2DrawMarker(ctx, shape, px, py, r, color) {
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 1.3;
-    ctx.beginPath();
-    switch (shape) {
-        case "square":
-            ctx.rect(px - r, py - r, 2 * r, 2 * r);
-            break;
-        case "triangle":
-            ctx.moveTo(px, py - r);
-            ctx.lineTo(px + r * 0.87, py + r * 0.5);
-            ctx.lineTo(px - r * 0.87, py + r * 0.5);
-            ctx.closePath();
-            break;
-        case "diamond":
-            ctx.moveTo(px, py - r); ctx.lineTo(px + r, py);
-            ctx.lineTo(px, py + r); ctx.lineTo(px - r, py);
-            ctx.closePath();
-            break;
-        case "cross":
-            ctx.moveTo(px - r, py - r); ctx.lineTo(px + r, py + r);
-            ctx.moveTo(px + r, py - r); ctx.lineTo(px - r, py + r);
-            break;
-        case "plus":
-            ctx.moveTo(px - r, py); ctx.lineTo(px + r, py);
-            ctx.moveTo(px, py - r); ctx.lineTo(px, py + r);
-            break;
-        case "star": {
-            const spikes = 5, outerR = r, innerR = r * 0.45;
-            for (let i = 0; i < spikes * 2; i++) {
-                const rad = i % 2 === 0 ? outerR : innerR;
-                const angle = (Math.PI / spikes) * i - Math.PI / 2;
-                const x = px + Math.cos(angle) * rad, y = py + Math.sin(angle) * rad;
-                if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-            }
-            ctx.closePath();
-            break;
-        }
-        default: // "circle"
-            ctx.arc(px, py, r, 0, 2 * Math.PI);
-    }
-    ctx.stroke();
+    drawFamilyMarker(ctx, shape, px, py, r, null, color, 1.3);
 }
 
 // One row per family: filled+textured swatch (= major bubble look) next to
@@ -199,34 +159,25 @@ function t2CellInBrush(cell) {
 /* ==================================================================
  * Feasibility — checks every effective threshold of a project (not just
  * 2 axes), per FIX R2. Split per-project (not just "any project") so the
- * contour stroke below can tell A-only from B-only from both.
+ * contour stroke below can tell A-only from B-only from both. The per-row
+ * check itself is shared with T4 (pipeline.rowMeetsProject); T2 still needs
+ * its own per-project (not just OR'd) cell aggregation, which the shared
+ * session.feasible_mask alone can't answer.
  * ================================================================== */
-function t2RowMeetsProject(project, i) {
-    const thresholds = project.thresholds;
-    for (const key in thresholds) {
-        const t = thresholds[key];
-        if (!t || t.effective == null) continue;
-        const a = ATTR_BY_KEY[key];
-        const v = session.columns[a.col][i];
-        const pass = a.higherIsBetter ? v >= t.effective : v <= t.effective;
-        if (!pass) return false;
-    }
-    return true;
-}
-
 function t2CellMeetsProject(cell, project) {
     for (let k = 0; k < cell.rowIds.length; k++) {
-        if (t2RowMeetsProject(project, cell.rowIds[k])) return true;
+        if (pipeline.rowMeetsProject(project, cell.rowIds[k])) return true;
     }
     return false;
 }
 
 // feasible for opacity purposes = matches at least one active project (or
-// no project exists yet, in which case nothing is filtered)
+// no project exists yet, in which case nothing is filtered) — same
+// definition as session.feasible_mask, but aggregated per-cell here
 function t2CellIsFeasible(cell) {
     if (session.projects.length === 0) return true;
-    for (let p = 0; p < session.projects.length; p++) {
-        if (t2CellMeetsProject(cell, session.projects[p])) return true;
+    for (let k = 0; k < cell.rowIds.length; k++) {
+        if (pipeline.rowIsFeasible(cell.rowIds[k])) return true;
     }
     return false;
 }
@@ -235,23 +186,23 @@ function t2CellIsFeasible(cell) {
  * as stroke weight only (no color, so it never fights the family hue fill).
  * Assumes the path is already set on ctx (beginPath + arc, not yet
  * stroked); strokes it in place 1-3 times without re-declaring the path.
- *   A only   -> 1px solid black
- *   B only   -> 3px solid white
- *   A and B  -> "railroad track": 5px black, 2px white gap, 1px black
- *   neither  -> the old default thin translucent stroke */
+ *   A only   -> 1px solid #111827
+ *   B only   -> 3px solid #111827
+ *   A and B  -> "railroad track": 5px #111827, 2px white gap, 1px #111827
+ *   neither  -> no stroke at all (fill alone carries the 20% opacity cue) */
+const T2_CONTOUR_INK = "#111827";
+
 function t2StrokeContour(ctx, feasibleA, feasibleB) {
     if (feasibleA && feasibleB) {
-        ctx.strokeStyle = "#000"; ctx.lineWidth = 5; ctx.stroke();
-        ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.stroke();
-        ctx.strokeStyle = "#000"; ctx.lineWidth = 1; ctx.stroke();
+        ctx.strokeStyle = T2_CONTOUR_INK; ctx.lineWidth = 5; ctx.stroke();
+        ctx.strokeStyle = "#fff";         ctx.lineWidth = 2; ctx.stroke();
+        ctx.strokeStyle = T2_CONTOUR_INK; ctx.lineWidth = 1; ctx.stroke();
     } else if (feasibleB) {
-        ctx.strokeStyle = "#636363"; ctx.lineWidth = 3; ctx.stroke();
-    } 
-    else if (feasibleA) {
-        ctx.strokeStyle = "#000"; ctx.lineWidth = 1; ctx.stroke();
-    } else {
-        ctx.strokeStyle = "rgba(0,0,0,0.55)"; ctx.lineWidth = 1; ctx.stroke();
+        ctx.strokeStyle = T2_CONTOUR_INK; ctx.lineWidth = 3; ctx.stroke();
+    } else if (feasibleA) {
+        ctx.strokeStyle = T2_CONTOUR_INK; ctx.lineWidth = 1; ctx.stroke();
     }
+    // neither -> no stroke
 }
 
 /* ==================================================================
@@ -281,8 +232,9 @@ function renderT2() {
         const [px, py] = geom.toPx(cell.cx, cell.cy);
         const feasible = t2CellIsFeasible(cell);
         // feasible cells sit at 75% opacity (not 100%) so overlapping bubbles
-        // blend instead of one fully hiding another; infeasible stays faint
-        let alpha = feasible ? 0.75 : 0.1;
+        // blend instead of one fully hiding another; infeasible (neither
+        // project) stays faint at 20%, per the blob-contour spec
+        let alpha = feasible ? 0.75 : 0.2;
         if (!t2CellInBrush(cell)) alpha *= T2_UNBRUSHED_DIM; // outside the active selection
         ctx.globalAlpha = alpha;
 
@@ -350,13 +302,12 @@ function t2DrawPickLabels(geom) {
             const dx = (idx % 3 - 1) * 18;
             const dy = Math.floor(idx / 3) * 15;
             const label = (pick.project === "B" ? "B" : "A") + pick.number;
-            const color = pick.project === "B" ? "#0072B2" : "#E69F00";
 
             ctx.font = "bold 11px Inter, sans-serif";
             const tw = ctx.measureText(label).width;
             const px = cx + dx, py = cy + dy;
 
-            ctx.fillStyle = color;
+            ctx.fillStyle = "#111827"; // pick chips are always black, never amber/blue
             ctx.beginPath();
             ctx.roundRect ? ctx.roundRect(px - tw / 2 - 4, py - 9, tw + 8, 16, 8) : ctx.rect(px - tw / 2 - 4, py - 9, tw + 8, 16);
             ctx.fill();

@@ -26,7 +26,11 @@ function initT3() {
         renderT3();
     });
     pipeline.onChange("projects", renderT3);   // constraint lines depend on projects
-    pipeline.onChange("brush_t3", renderT3);   // redraw when brushes change
+    pipeline.onChange("brush_t3", renderT3);   // redraw when brushes change (does NOT auto-zoom — applying a
+                                                // column's own selection doesn't zoom into it)
+    // Only T2's own UMAP brush drives the auto-zoom — not T3's own column
+    // brushes, and not any T2+T3 combination.
+    pipeline.onChange("brush_t2", function () { t3SyncZoomToT2Brush(); renderT3(); });
 
     document.getElementById("seeMoreBtn").addEventListener("click", toggleSecondaryAttributes);
 
@@ -90,6 +94,41 @@ function t3GetZoom(key) {
 }
 
 function clamp01(v) { return Math.max(0, Math.min(1, v)); }
+
+// AUTO-ZOOM TO T2's SELECTION ONLY
+// Only T2's own UMAP brush drives this — never T3's own column brushes, and
+// never a T2+T3 combination. Applying a column's own selection (left-drag)
+// does not zoom into it; only T2's rectangle brush does.
+
+// [lo, hi] normalized range T2's brush spans on one attribute, or null if
+// there's no active T2 brush (or it's empty/degenerate on this attribute).
+function t3ComputeT2ZoomForColumn(attrKey) {
+    const brush = session.brush_t2;
+    if (!brush) return null;
+    const col = session.columns[ATTR_BY_KEY[attrKey].col];
+    let lo = Infinity, hi = -Infinity;
+    brush.rowIds.forEach(function (id) {
+        const v = col[id];
+        if (v < lo) lo = v;
+        if (v > hi) hi = v;
+    });
+    if (lo > hi) return null;
+    const nLo = pipeline.normAttr(attrKey, lo), nHi = pipeline.normAttr(attrKey, hi);
+    if (nLo == null || nHi == null) return null;
+    const zLo = clamp01(Math.min(nLo, nHi)), zHi = clamp01(Math.max(nLo, nHi));
+    if (zHi - zLo < 1e-6) return null; // degenerate span -> treat as "no zoom"
+    return [zLo, zHi];
+}
+
+// whenever T2's brush changes, zoom every column to T2's zoomed area (or
+// back to full [0,1] if T2 has no active brush)
+function t3SyncZoomToT2Brush() {
+    if (!session.brush_t2) { t3ColumnZoom = {}; return; }
+    ATTRIBUTES.forEach(function (attr) {
+        const z = t3ComputeT2ZoomForColumn(attr.key);
+        if (z) t3ColumnZoom[attr.key] = z; else delete t3ColumnZoom[attr.key];
+    });
+}
 
 // underlying normalized value -> display fraction (0..1) within the column
 function t3ToDisplay(key, normVal) {
@@ -379,18 +418,25 @@ function t3HitColumn(x) {
     return null;
 }
 
-// middle-click a column: cancel its filter selection only 
-function t3CancelFilterSelection(key) {
-    if (!(key in session.brush_t3)) return;
-    const brushes = Object.assign({}, session.brush_t3);
-    delete brushes[key];
-    pipeline.set("brush_t3", brushes); // brush changed -> cross-view recompute + redraw
+// middle-click a column: deselect — clear its filter selection, drop its
+// axisQueue brush entry, snap this column's own zoom back to T2's zoomed
+// area (or full range if T2 has none active), and snap any linked T4 panel
+// back to its default bbox for this axis
+function t3DeselectColumn(key) {
+    if (key in session.brush_t3) {
+        const brushes = Object.assign({}, session.brush_t3);
+        delete brushes[key];
+        pipeline.set("brush_t3", brushes); // brush changed -> cross-view recompute + redraw
+    }
+    const t2Zoom = t3ComputeT2ZoomForColumn(key);
+    if (t2Zoom) t3ColumnZoom[key] = t2Zoom; else delete t3ColumnZoom[key];
+    pipeline.axisQueueClear(key);
+    t4ResetPanelZoomForAxis(key);
+    renderT3();
 }
 
-// left-click drags a filter selection
-// right-click drags a local zoom window;
-// middle-click cancels the column's filter selection.
-// All start from the same column hit-test
+// left-click drags a filter selection; right-click drags a local zoom
+// window; middle-click deselects. All start from the same column hit-test
 function t3OnMouseDown(evt) {
     if (!t3Layout) return;
     const p = canvasCoords(evt.currentTarget, evt);
@@ -398,7 +444,7 @@ function t3OnMouseDown(evt) {
     if (!hit) return;
     if (evt.button === 1) {
         evt.preventDefault(); // stop the browser's middle-click autoscroll from kicking in
-        t3CancelFilterSelection(t3Layout.attrs[hit.col].key);
+        t3DeselectColumn(t3Layout.attrs[hit.col].key);
     } else if (evt.button === 2) {
         evt.preventDefault();
         t3ZoomDrag = { col: hit.col, startNorm: hit.norm, curNorm: hit.norm };
@@ -442,7 +488,10 @@ function t3OnMouseUp() {
         }
         t3Drag = null;
         if (brushesChanged) {
+            const range = brushes[attr.key];
             pipeline.set("brush_t3", brushes); // triggers active_set recompute + redraw
+            pipeline.axisQueueUpsert(attr.key, "T3", range);
+            t4SyncPanelZoomFromBrush(attr.key, range);
         } else {
             renderT3();
         }
@@ -456,7 +505,10 @@ function t3OnMouseUp() {
         if (bDisp - aDisp >= 0.01) {
             t3ColumnZoom[attr.key] = [t3ToUnderlying(attr.key, aDisp), t3ToUnderlying(attr.key, bDisp)];
         } else {
-            delete t3ColumnZoom[attr.key];
+            // plain right-click cancels the manual zoom -> back to T2's
+            // zoomed area for this column (or full range if T2 has none active)
+            const t2Zoom = t3ComputeT2ZoomForColumn(attr.key);
+            if (t2Zoom) t3ColumnZoom[attr.key] = t2Zoom; else delete t3ColumnZoom[attr.key];
         }
         t3ZoomDrag = null;
         renderT3();

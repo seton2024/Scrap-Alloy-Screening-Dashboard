@@ -87,6 +87,14 @@
     line-height: 1.2;
 }
 
+/* "Range: min – max" helper text under each threshold input */
+.field-hint {
+    color: var(--text-muted);
+    font-size: 0.7rem;
+    margin-top: 2px;
+    line-height: 1.2;
+}
+
 .constraint-table {
     width: 100%;
     border-collapse: collapse;

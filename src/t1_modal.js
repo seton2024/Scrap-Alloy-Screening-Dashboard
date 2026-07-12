@@ -76,14 +76,14 @@ function attrRowHtml(attr, project) {
     const rangeTitle = nt
         ? "Dataset range: " + formatRangeValue(nt.min) + "–" + formatRangeValue(nt.max)
         : "";
-    // placeholder = to show the mid-point of the dataset range
-    const placeholder = nt ? formatRangeValue(nt.min+nt.max/2) : "";
+    const rangeHint = nt ? "Range: " + fmtVal(nt.min) + " – " + fmtVal(nt.max) : "";
     return (
         '<tr class="' + rowClasses.trim() + '" data-attr="' + attr.key + '" title="' + escapeHtml(rangeTitle) + '">' +
         "<td>" + escapeHtml(attr.label) + "</td>" +
         "<td>" +
-        '<input type="text" inputmode="decimal" class="floor-input" placeholder="' + escapeHtml(placeholder) + '" ' +
+        '<input type="text" inputmode="decimal" class="floor-input" ' +
         'value="' + (t.floor != null ? t.floor : "") + '" onblur="t1FormatFloorOnBlur(this)">' +
+        '<div class="field-hint">' + escapeHtml(rangeHint) + '</div>' +
         '<div class="field-error" hidden></div>' +
         "</td>" +
         '<td><input type="number" step="any" class="margin-input" min="0" max="100" value="' + t.margin + '"></td>' +
@@ -173,8 +173,8 @@ function t1FormatFloorOnBlur(input) {
     if (!isValidDecimalFormat(raw)) return;
     const v = parseFloat(raw);
     const abs = Math.abs(v);
-    if (abs !== 0 && (abs < 0.001 || abs >= 1e5)) {
-        input.value = v.toExponential(2);
+    if (abs !== 0 && (abs < 0.001 || abs >= 1e6)) {
+        input.value = v.toExponential(2); // visual confirmation it parsed as sci notation
     }
 }
 
@@ -265,13 +265,33 @@ function applyProjects() {
     //      if Project B is being removed, Project B's picks are cleared.
     const hadProjectB = session.projects.length > 1;
     const hasProjectB = projects.length > 1;
+
+    // "projects" fires BEFORE "picks" — views that key off dual/single mode
+    // (T5's Spider B visibility, stock_alerts) already see the correct
+    // project count by the time any resulting "picks" trim lands, instead of
+    // rendering one transient frame against the stale project count.
+    updateAxisQueueFromProjects(projects);
+    pipeline.set("projects", projects);
     if (hadProjectB && !hasProjectB) {
         pipeline.set("picks", session.picks.filter(function (pick) { return pick.project !== "B"; }));
     }
 
-    pipeline.set("projects", projects);
     renderProjectChips(projects);
     closeProjectModal();
+}
+
+// for every axis with an active constraint (in constraint-table row order),
+// push or update a { axis, source: 'T1', brushRange: null } axisQueue entry.
+// T4 listens for "projects" and recomputes each panel's feasible bbox from
+// this (skipping panels the user has manually zoomed).
+function updateAxisQueueFromProjects(projects) {
+    ATTRIBUTES.forEach(function (attr) {
+        const active = projects.some(function (p) {
+            const t = p.thresholds[attr.key];
+            return t && t.effective != null;
+        });
+        if (active) pipeline.axisQueueUpsert(attr.key, "T1", null);
+    });
 }
 
 

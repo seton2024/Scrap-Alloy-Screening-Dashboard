@@ -200,6 +200,7 @@ function rerenderDashboard() {
     if (!session.loaded) return;
     if (typeof renderT2 === "function") renderT2();
     if (typeof renderT3 === "function") renderT3();
+    if (typeof renderT4Panels === "function") renderT4Panels();
     if (typeof renderT5Spiders === "function") renderT5Spiders();
 }
 
