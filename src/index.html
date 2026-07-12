@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
 * Aluminum Alloy Screening Dashboard
-* IEEE SciVis Contest 2025 — Data Visualization, University of Passau
+* IEEE SciVis Contest 2025 - Data Visualization, University of Passau
 * GROUP 13 - Syra, Tonoyan
 *
 * (Copyright University of Passau, Chair of Cognitive Sensor Systems).
@@ -115,7 +115,7 @@
 
 </section>
 
-<!-- ================================================================= --><!-- Dashboard tab: T2 | T3 | T4 top row, T5 + T6 bottom strip           -->
+<!--Dashboard tab: T2 | T3 | T4 top row, T5 + T6 bottom strip  -->
 <section id="Dashboard" class="tabcontent">
     <div class="dashboard-workflow">
 
@@ -213,7 +213,14 @@
                     <span class="view-tag">T6</span>
                 </div>
                 <div class="view-body">
-                    <div id="tableT6"></div>
+                    <div class="t6-body">
+                        <div class="t6-table-wrap" id="t6WrapA">
+                            <div id="tableT6-A"></div>
+                        </div>
+                        <div class="t6-table-wrap" id="t6WrapB" hidden>
+                            <div id="tableT6-B"></div>
+                        </div>
+                    </div>
                     <div class="view-placeholder" id="placeholderT6">Select alloys in T4 to see full details.</div>
                 </div>
             </div>

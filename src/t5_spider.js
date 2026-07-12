@@ -1,25 +1,14 @@
 /*
-* t5_spider.js — T5 Spider Chart (Comparison view) + stock alerts
-* See docs/nested_model_L1_L2_L3_L4_report.md §3.7, §4.6
-*
-* One spider per active project (A left, B right). Each shows up to 4 alloys
-* picked while that project was active, on 7 normalized axes (outward =
-* better). Alloys are distinguished by stroke dash style. A second pass marks
-* constraint-violation vertices in red. Stock demand is checked against the
-* facility stock file — single-alloy and PAIRWISE (one A alloy x one B alloy)
-* — offenders get amber vertex rings and a message in the banner between the
-* two spiders. Results are written to session.stock_alerts for T6 to consume.
-* Hovering an axis label sets session.hovered_axis for T6 to highlight.
-* Chart/legend geometry is derived from the canvas's actual size (FIX M2).
+* t5_spider.js - T5 Spider Chart (Comparison view) + stock alerts
+* 
+* One spider per active project: up to 4 alloys picked, distinguished by stroke dash style. 
 */
 
-// fixed axis order (report §3.7): CSC first (non-negotiable), then the
-// YS/TC/ER correlation triad, then the domain-priority remainder
+
 const T5_AXIS_ORDER = ["CSC", "YS", "TC", "ER", "Hardness", "Density", "LinearTE"];
 
-// per-alloy visual identity (up to 4). Dash patterns are the redundant,
-// colorblind-safe channel; colors come from the Wong palette.
-const ALLOY_COLORS = ["#0072B2", "#D55E00", "#009E73", "#CC79A7"];
+
+const ALLOY_INK = "#222";
 const ALLOY_DASHES = [[], [8, 4], [2, 4], [8, 4, 2, 4]];
 
 // per-canvas axis-label hit boxes, stashed each render so the hover handler
@@ -104,12 +93,7 @@ function drawSpider(canvasId, projIdx) {
     const ctx = hd.ctx, W = hd.W, H = hd.H;
     ctx.clearRect(0, 0, W, H);
 
-    // FIX M2: derive geometry from the actual canvas size instead of the
-    // hardcoded cy=130/maxR=100 — those only worked because the canvas
-    // happened to be 320px tall. Reserve room for the title (top) and the
-    // legend (bottom) first, then fit the radius (plus its label overhang)
-    // into whatever vertical AND horizontal space is left, so the legend can
-    // never overlap the chart regardless of the canvas's actual size.
+    //adaptive sizing
     const titleH = 16;
     const legendRowH = 14, legendRows = 4;
     const legendH = legendRows * legendRowH + 8;
@@ -165,8 +149,7 @@ function drawSpider(canvasId, projIdx) {
 
     // --- one polygon per alloy ---
     picks.forEach(function (pick, slot) {
-        const color = ALLOY_COLORS[slot % 4];
-        ctx.strokeStyle = color;
+        ctx.strokeStyle = ALLOY_INK;
         ctx.lineWidth = 2;
         ctx.setLineDash(ALLOY_DASHES[slot % 4]);
         ctx.beginPath();
@@ -180,7 +163,7 @@ function drawSpider(canvasId, projIdx) {
         ctx.stroke();
         ctx.setLineDash([]);
         ctx.globalAlpha = 0.10;
-        ctx.fillStyle = color;
+        ctx.fillStyle = ALLOY_INK;
         ctx.fill();
         ctx.globalAlpha = 1;
     });
@@ -220,19 +203,16 @@ function violatesConstraint(project, attrKey, rawValue) {
     return attr.higherIsBetter ? rawValue < t.effective : rawValue > t.effective;
 }
 
-// FIX M2: legendTop/rowH come from drawSpider's canvas-size-derived budget,
-// not a value re-hardcoded here — one source of truth for the reserved space.
 function drawSpiderLegend(ctx, picks, project, legendTop, rowH) {
     let y = legendTop;
     ctx.font = "10px Inter, sans-serif";
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
     picks.forEach(function (pick, slot) {
-        const color = ALLOY_COLORS[slot % 4];
         const rowName = session.columns["Mixture ID"] ? session.columns["Mixture ID"][pick.rowId] : "Row " + pick.rowId;
 
         // dashed swatch matching this alloy's stroke style
-        ctx.strokeStyle = color; ctx.lineWidth = 2;
+        ctx.strokeStyle = ALLOY_INK; ctx.lineWidth = 2;
         ctx.setLineDash(ALLOY_DASHES[slot % 4]);
         ctx.beginPath(); ctx.moveTo(8, y); ctx.lineTo(30, y); ctx.stroke();
         ctx.setLineDash([]);
@@ -249,7 +229,7 @@ function drawSpiderLegend(ctx, picks, project, legendTop, rowH) {
     });
 }
 
-/* ---- stock alerts (report §4.6.2) ------------------------------------- */
+//STOCK ALLERTS
 
 // recipe fraction (0-1) of a scrap family within an alloy: input column is a
 // percentage, so divide by 100
@@ -281,11 +261,6 @@ function computeStockAlerts() {
             }
         });
 
-        // FIX R3: combined check is PAIRWISE — one alloy from A x one from B,
-        // as if that specific pair alone were produced (report §4.6.5). The
-        // old code summed demand over EVERY A pick x EVERY B pick at once
-        // (up to 4 recipes each), which overstates demand and fires false
-        // alarms whenever a client has more than one pick.
         if (dual) {
             aPicks.forEach(function (a) {
                 bPicks.forEach(function (b) {
@@ -315,11 +290,11 @@ function mixtureName(rowId) {
     return session.columns["Mixture ID"] ? session.columns["Mixture ID"][rowId] : "Row " + rowId;
 }
 
-// two visually distinct alert formats (report §4.6.6): single uses the plain
-// warning icon at the banner's base indent; combined additionally names BOTH
-// implicated alloys and is set apart by a different leading glyph (↳, reading
-// as "a consequence of pairing these two") plus a CSS indent — icon AND
-// indent, not just one or the other
+// two visually distinct alerts: 
+//          single uses the plain warning icon at the banner's base indent;
+//          combined names BOTH implicated alloys 
+//               is set apart by a different leading glyph
+//               a CSS indent
 function renderStockAlertBanner() {
     const banner = document.getElementById("alertBanner");
     if (!session.stock_alerts.length) { banner.innerHTML = ""; return; }

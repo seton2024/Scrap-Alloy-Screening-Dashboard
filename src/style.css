@@ -1,15 +1,10 @@
-/*
-* Aluminum Alloy Screening Dashboard — main.css (shared skeleton)
-* Owner: Both · Branch: shared-skeleton
-* Design tokens (Wong/Okabe-Ito palette, spacing, type) per
-* docs/nested_model_L1_L2_L3_L4_report.md §3.2.1 and project_schedule.md
-* "Shared CSS tokens" pre-coding checklist item.
-*/
+/* Aluminum Alloy Screening Dashboard - main.css (shared skeleton) */
+
 
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
 
 :root {
-    /* Wong / Okabe-Ito 7-family palette (colorblind-safe) */
+    /* Wong / Okabe-Ito 7-family palette */
     --color-ks1295: #E69F00;
     --color-6082:   #56B4E9;
     --color-2024:   #009E73;
@@ -18,7 +13,7 @@
     --color-4032:   #CC79A7;
     --color-mixed:  #888888;
 
-    /* project constraint lines (never reuse family hues, §3.2.2) */
+    /* project constraint lines */
     --color-constraint: #222222;
 
     /* alert channels */
@@ -64,9 +59,8 @@ body {
 
 h1, h2, h3, h4 { font-family: var(--font-base); margin: 0 0 var(--space-2); }
 
-/* ---------------------------------------------------------------- */
-/* Header bar + T1 legend chips                                      */
-/* ---------------------------------------------------------------- */
+
+/* HEADER BAR + T1 LEGEND CHIPS*/
 
 #appHeader {
     display: flex;
@@ -135,9 +129,9 @@ h1, h2, h3, h4 { font-family: var(--font-base); margin: 0 0 var(--space-2); }
 
 .project-chip.project-b .chip-swatch { background: #666; }
 
-/* ---------------------------------------------------------------- */
-/* Buttons                                                            */
-/* ---------------------------------------------------------------- */
+
+/* BUTTONS*/
+
 
 .btn-primary, .btn-secondary {
     font: 500 0.85rem var(--font-base);
@@ -160,9 +154,9 @@ h1, h2, h3, h4 { font-family: var(--font-base); margin: 0 0 var(--space-2); }
 }
 .btn-secondary:hover { background: #f0f0f0; }
 
-/* ---------------------------------------------------------------- */
-/* Tab bar                                                            */
-/* ---------------------------------------------------------------- */
+
+/* TAB BAR*/
+
 
 #tabBar {
     display: flex;
@@ -195,9 +189,8 @@ h1, h2, h3, h4 { font-family: var(--font-base); margin: 0 0 var(--space-2); }
 
 .tabcontent.active { display: block; }
 
-/* ---------------------------------------------------------------- */
-/* Generic panel                                                     */
-/* ---------------------------------------------------------------- */
+
+/* GENERIC PANNEL*/
 
 .panel {
     background: var(--panel-bg);
@@ -207,9 +200,9 @@ h1, h2, h3, h4 { font-family: var(--font-base); margin: 0 0 var(--space-2); }
     margin-bottom: var(--space-4);
 }
 
-/* ---------------------------------------------------------------- */
-/* Loading tab — progress bar ("line filling up the box")            */
-/* ---------------------------------------------------------------- */
+
+/* LOADING TAB*/
+
 
 .progress-block { margin-top: var(--space-3); }
 
@@ -270,9 +263,9 @@ h1, h2, h3, h4 { font-family: var(--font-base); margin: 0 0 var(--space-2); }
     text-align: right;
 }
 
-/* ---------------------------------------------------------------- */
-/* Data preview table + pagination (loading tab, §4.0.2)             */
-/* ---------------------------------------------------------------- */
+
+/* DATA PREVIEW*/
+
 
 .dataTableClass {
     width: 100%;
@@ -321,9 +314,8 @@ h1, h2, h3, h4 { font-family: var(--font-base); margin: 0 0 var(--space-2); }
 
 .pagination button:disabled { opacity: 0.4; cursor: not-allowed; }
 
-/* ---------------------------------------------------------------- */
-/* Dashboard workflow layout: T2 | T3 | T4  +  T5/T6 bottom strip     */
-/* ---------------------------------------------------------------- */
+/* Dashboard workflow layout: T2 | T3 | T4  +  T5/T6 bottom strip*/
+
 
 .dashboard-workflow {
     display: grid;
@@ -392,16 +384,13 @@ h1, h2, h3, h4 { font-family: var(--font-base); margin: 0 0 var(--space-2); }
 }
 
 /* Explicit CSS display height for the T3 canvas. setupHiDPICanvas overwrites
-   the width/height ATTRIBUTES (the backing store), so the DISPLAY size must
-   be pinned in CSS instead — otherwise the canvas would grow to whatever the
-   backing-store height happens to be. */
+   the width/height ATTRIBUTES (the backing store)*/
 #canvasT3 { height: 360px; }
 
-/* T2's UMAP embedding is roughly square (see spatial_grid.json meta.extent) —
-   give it more height than T3 so it isn't squeezed into a short wide strip. */
+
 #canvasT2 { height: 520px; }
 
-/* placeholder state shown until session.loaded === true (§4.0) */
+/* placeholder state shown until session.loaded === true*/
 .view-placeholder {
     position: absolute;
     inset: var(--space-3);
@@ -434,9 +423,7 @@ h1, h2, h3, h4 { font-family: var(--font-base); margin: 0 0 var(--space-2); }
     font-size: 0.75rem;
 }
 
-/* a row of scatter panels sitting side by side (the 3 defaults, and each
-   batch of added plots). flex-wrap lets them drop to the next line on very
-   narrow screens instead of overflowing. */
+
 .t4-row {
     display: flex;
     gap: var(--space-3);
@@ -444,8 +431,7 @@ h1, h2, h3, h4 { font-family: var(--font-base); margin: 0 0 var(--space-2); }
     margin-bottom: var(--space-3);
 }
 
-/* each panel shares the row equally; min-width:0 lets the canvas inside
-   shrink to fit rather than forcing the row wider than its container */
+/* each panel shares the row equally*/
 .t4-row .scatter-panel {
     flex: 1 1 0;
     min-width: 0;
@@ -484,9 +470,9 @@ h1, h2, h3, h4 { font-family: var(--font-base); margin: 0 0 var(--space-2); }
 .alert-single { margin-left: 0; }
 .alert-combined { margin-left: var(--space-3); font-weight: 500; }
 
-/* ---------------------------------------------------------------- */
-/* Texture-fill swatches — redundant channel for family hue (§3.2.1) */
-/* ---------------------------------------------------------------- */
+
+/*TEXTURE FILL SWATCHES*/
+
 
 .legend-swatch {
     display: inline-block;
@@ -533,9 +519,9 @@ h1, h2, h3, h4 { font-family: var(--font-base); margin: 0 0 var(--space-2); }
     background-size: 4px 4px;
 }
 
-/* ---------------------------------------------------------------- */
-/* Misc reused elements (axes, tooltip)                               */
-/* ---------------------------------------------------------------- */
+
+/* REUSED ELEMENTS*/
+
 
 svg { font: 10px sans-serif; }
 
@@ -556,15 +542,35 @@ div.tooltip {
     z-index: 50;
 }
 
-.t6-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-.t6-table th, .t6-table td { padding: 4px 8px; border-bottom: 1px solid #eee; text-align: left; }
-.t6-table td:not(:first-child) { text-align: right; }
+.t6-body { display: flex; gap: var(--space-4); flex-wrap: wrap; }
+.t6-table-wrap { flex: 1 1 260px; min-width: 220px; overflow-x: auto; }
 
-/* T5 axis-label hover -> matching T6 row. Neutral gray, same channel as the
-   T2/T3 brush overlays — never a data-encoding hue (amber/red/family colors
-   are all already spoken for elsewhere in this app). */
+.t6-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.t6-table th, .t6-table td { padding: 4px 8px; border-bottom: 1px solid #eee; text-align: left; white-space: nowrap; }
+.t6-table td:not(:first-child), .t6-table th:not(:first-child) { text-align: right; }
+
+/* Recipe / Output properties group headers */
+.t6-section td {
+    font: 600 10px var(--font-base);
+    text-transform: uppercase;
+    letter-spacing: .03em;
+    color: var(--text-muted);
+    background: #f6f7f8;
+    border-bottom: 1px solid var(--border-color);
+    padding-top: 8px;
+}
+
+/* fails that project's effective threshold */
+.t6-cell-red { background: rgba(193, 18, 31, 0.14); }
+/* recipe cell for a scrap family implicated in a stock alert */
+.t6-cell-amber { background: rgba(230, 159, 0, 0.24); }
+/* best value for this property row within its table */
+.t6-cell-best { color: var(--color-success); font-weight: 700; }
+
+/* T5 axis-label hover -> matching T6 row.*/
 .t6-row-hover { background: rgba(0, 0, 0, 0.06); }
 .t6-row-hover td:first-child { border-left: 3px solid #555; padding-left: 5px; }
+.t6-row-hover td { border-top: 2px solid var(--color-constraint); border-bottom: 2px solid var(--color-constraint); }
 
 
 .legend-item   { display: inline-flex; align-items: center; gap: 4px; margin: 0 12px 4px 0; font-size: 12px; }

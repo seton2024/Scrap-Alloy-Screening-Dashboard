@@ -147,18 +147,18 @@
 
 ## T6 — Characteristics Table
 
-**Two separate tables** — one for Project A picks, one for Project B picks. In single-project mode only the A table is shown. <!-- NOT DONE: T6 renders ONE combined table from session.picks; no A/B split -->
+**Two separate tables** — one for Project A picks, one for Project B picks. In single-project mode only the A table is shown.
 
-- [ ] **Table A** — columns populate from `session.picks_a` (up to 4, amber column headers) <!-- single table exists (columns per pick), but no amber A styling / picks_a source -->
-- [ ] **Table B** — columns populate from `session.picks_b` (up to 4, blue column headers); hidden in single-project mode
-- [ ] Each table has 2 sections: Recipe (6 scrap %) · Output properties (17 rows) + CALPHAD disclaimer row <!-- current: Recipe (6) + 14 property rows + disclaimer; 17-row + chem wt% set not present -->
-- [ ] Per-property formatting: YS 0dp · CSC 3dp · TC 1dp · ER sci 2sf · Hardness 1dp · Density 3dp · LinearTE sci 2sf · scrap % 1dp · chem wt% 2dp <!-- uniform toFixed(3) today -->
-- [ ] Red cell: output property fails that project's effective threshold
-- [ ] Amber cell: recipe row for scrap involved in stock alert
-- [ ] **TA:** Highlight best value per property row within each table — green/bold on the winning cell (respects direction: higher- or lower-is-better)
-- [ ] **TA:** When T5 spider axis is clicked, highlight the matching row in the corresponding table (A or B) with a border + scroll into view
-- [ ] **FIX S3:** subscribe T6 to `projects` and `stock_alerts` — currently `picks` only, so the table goes stale after a T1 re-apply and never sees alert changes (contract lists T6 as a `stock_alerts` reader)
-- [ ] **FIX S5:** full disclaimer text per report §4.7.5: *"Values are CALPHAD predictions. Verify by laboratory measurement before production use."* <!-- current row says only "Values are CALPHAD predictions." -->
+- [x] **Table A** — columns populate from Project A's picks (up to 4, plain/black column headers — decided against amber/blue project coloring) <!-- reads via picksForProject(0), same session.picks[].project split T5 already uses, pending the picks_a/picks_b schema migration -->
+- [x] **Table B** — columns populate from Project B's picks (up to 4, plain/black column headers); hidden in single-project mode
+- [x] Each table has 2 sections: Recipe (6 scrap %) · Output properties (14 rows, abbreviation row titles) + CALPHAD disclaimer row <!-- report §4.7.2's separate 12-element Chemical composition block was decided against and removed; report also says 17 output rows (7 primary + 10 secondary) but pipeline.js's shared ATTRIBUTES only defines 14 (7+7) today -->
+- [x] Per-property formatting: YS 0dp · CSC 3dp · TC 1dp · ER sci 2sf · Hardness 1dp · Density 3dp · LinearTE sci 2sf · scrap % 1dp · chem wt% 2dp <!-- secondary attrs without an explicit spec fall back to formatRangeValue() -->
+- [x] Red cell: output property fails that project's effective threshold
+- [x] Amber cell: recipe row for scrap involved in stock alert
+- [x] **TA:** Highlight best value per property row within each table — green/bold on the winning cell (respects direction: higher- or lower-is-better)
+- [x] **TA:** When T5 spider axis is clicked, highlight the matching row in the corresponding table (A or B) with a border + scroll into view
+- [x] **FIX S3:** subscribe T6 to `projects` and `stock_alerts` — currently `picks` only, so the table goes stale after a T1 re-apply and never sees alert changes (contract lists T6 as a `stock_alerts` reader)
+- [x] **FIX S5:** full disclaimer text per report §4.7.5: *"Values are CALPHAD predictions. Verify by laboratory measurement before production use."*
 
 ---
 
@@ -167,8 +167,8 @@
 - [ ] T2 brush → recompute `active_set` → T3 highlights + T4 dims update <!-- active_set recomputes and T4 re-dims, but T3 does NOT subscribe to active_set so it doesn't re-highlight on a T2 brush -->
 - [x] T3 brush → recompute `active_set` → T2 re-dims + T4 updates
 - [ ] T4 pick (A or B toggle) → updates `picks_a` or `picks_b` → corresponding spider re-renders → stock alerts recompute → corresponding T6 table repopulates <!-- single-project chain works (pick → T5 + stock + T6); no A/B toggle / picks_a / picks_b routing -->
-- [ ] T5 axis hover → highlights matching row in T6 table A or B
-- [x] T1 Apply / Re-apply → recompute thresholds → all views re-render; preserve brushes + picks; removing Project B clears `picks_b` and hides Spider B + Table B <!-- threshold recompute + re-render + brush/pick preservation + B-pick clear + Spider B hide all work; Table B N/A (T6 not split yet) -->
+- [x] T5 axis hover → highlights matching row in T6 table A or B
+- [x] T1 Apply / Re-apply → recompute thresholds → all views re-render; preserve brushes + picks; removing Project B clears `picks_b` and hides Spider B + Table B <!-- threshold recompute + re-render + brush/pick preservation + B-pick clear + Spider B hide all work; Table B now hides via t6WrapB alongside Spider B -->
 - [ ] Deselection: empty T2 click clears `brush_t2`; empty T3 axis clears that property brush; "Reset all" clears everything including both pick sets <!-- empty-T2 and empty-T3 clears work; no "Reset all" control -->
 - [ ] End-to-end test: dual-project mode, identical thresholds (A+B chip), constraint outside data range, 5th alloy per project blocked, stock at zero, T1 re-apply mid-session
 - [ ] **FIX S4:** derived state (`stock_alerts`, `feasible_mask`) computed inside the pipeline **before** dependent listeners fire — currently subscriber-order dependent: T5 computes alerts in its own `picks` handler (T6 freshness depends on script-load order), and T1 sets `picks` before `projects` when removing Project B (transient wrong Spider B)

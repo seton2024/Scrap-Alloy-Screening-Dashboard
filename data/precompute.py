@@ -7,10 +7,11 @@ Everything heavy is computed here, ONCE, offline. This script produces:
     kde_curves.json    {key: {fam: [200]}}  - 1-D violin KDE, 14 attrs x 6 families
     spatial_grid.json  meta + cells         - T2 two-tier overview + complete brush
                                                index
+    stock.json         {family: qty_kg}     - per-family available stock, read by T5
+                                               for the stock-alert checks
 
 Usage:
     python precompute.py --input <dataset.txt>
-    python precompute.py --input <dataset.txt> --add-stock-column (to only add stock=10000 for T5 exploration)
 """
 
 import argparse
@@ -66,6 +67,7 @@ KDE_GRID = 200                # points per violin curve (report SS4.4)
 KDE_SAMPLE = 4000             # subsample per family for KDE speed (visually identical)
 GRID_COLS = 55
 T2_CANVAS_W, T2_CANVAS_H = 1100, 320   # same as <canvas id="canvasT2"> in index.html
+STOCK_PLACEHOLDER_KG = 10000   # flat per-family placeholder, until real facility stock is integrated
 TUNE_SAMPLE, TUNE_MIN = 35_000, 30   # min_count=30 was tuned on 35k -> scale by density
 
 
@@ -92,6 +94,13 @@ def compute_norm_table(df):
         v = df[col].values
         table[col] = {"min": float(np.nanmin(v)), "max": float(np.nanmax(v))}
     return table
+
+
+def compute_stock_table():
+    #Per-family available stock (kg), the shape T5 reads as session.stock: {familyKey: qty_kg}.
+    # Flat STOCK_PLACEHOLDER_KG for every family for now, until real facility stock is integrated.
+    # Keys match pipeline.js SCRAP_FAMILIES[i].key (bare family name, no "[%]" suffix).
+    return {col.replace("[%]", ""): STOCK_PLACEHOLDER_KG for col in SCRAP}
 
 
 def _normalize(values, cmin, cmax, higher_is_better):
@@ -178,7 +187,6 @@ def compute_spatial_grid(coords, labels, df):
 
     ys = df["YS(MPa)"].values
     csc = df["CSC"].values
-    stock = df["stock"].values if "stock" in df.columns else None  # only present with --add-stock-column
 
     buckets = defaultdict(list)
     for p in range(n):
@@ -188,7 +196,7 @@ def compute_spatial_grid(coords, labels, df):
     for (gx, gy), pos in buckets.items():
         pos = np.array(pos)
         bc = np.bincount(labels[pos], minlength=7)
-        cell = {
+        cells.append({
             "gx": gx, "gy": gy,
             "cx": round(float(coords[pos, 0].mean()), 4),   # member centroid
             "cy": round(float(coords[pos, 1].mean()), 4),
@@ -199,10 +207,7 @@ def compute_spatial_grid(coords, labels, df):
             "ys_med": round(float(np.median(ys[pos])), 1),
             "csc_med": round(float(np.median(csc[pos])), 3),
             "rowIds": [int(r) for r in pos],
-        }
-        if stock is not None:
-            cell["stock_med"] = round(float(np.median(stock[pos])), 1)
-        cells.append(cell)
+        })
 
     # completeness guards: every row must land in exactly one cell
     total_count = sum(c["count"] for c in cells)
@@ -244,54 +249,53 @@ def _dump(obj, path):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", required=True)
-    parser.add_argument("--add-stock-column", action="store_true",
-                         help="add a 'stock' column, value 10000 on every row")
 
     args = parser.parse_args()
 
     t_all = time.time()
 
     #checkpoints are needed so it doestn't feel stuck
-    checkpoint(f"[1/6] Loading dataset: {args.input}")
+    checkpoint(f"[1/7] Loading dataset: {args.input}")
     df = load_dataset(args.input)
-    checkpoint(f"[1/6] Loaded {len(df):,} rows x {df.shape[1]} cols")
+    checkpoint(f"[1/7] Loaded {len(df):,} rows x {df.shape[1]} cols")
 
-    if args.add_stock_column:
-        df["stock"] = 10000
-        checkpoint("[1/6] --add-stock-column: added 'stock' column, value 10000 on every row")
+    checkpoint("[2/7] Stock table (per-family placeholder, flat 10000kg)")
+    stock = compute_stock_table()
+    _dump(stock, "stock.json")
+    checkpoint(f"[2/7] -> stock.json written ({len(stock)} families)")
 
-    checkpoint("[2/6] Family labels (argmax + <=2pp Mixed rule)")
+    checkpoint("[3/7] Family labels (argmax + <=2pp Mixed rule)")
     labels = compute_family_labels(df)
     counts = np.bincount(labels, minlength=7)
     print("      counts (KS1295,6082,2024,bat-box,3003,4032,Mixed):", counts.tolist())
     np.save("family_labels.npy", labels)
-    checkpoint("[2/6] -> family_labels.npy written")
+    checkpoint("[3/7] -> family_labels.npy written")
 
-    checkpoint("[3/6] Normalisation table (min/max per column)")
+    checkpoint("[4/7] Normalisation table (min/max per column)")
     norm_table = compute_norm_table(df)
     _dump(norm_table, "norm_table.json")
-    checkpoint(f"[3/6] -> norm_table.json written ({len(norm_table)} columns)")
+    checkpoint(f"[4/7] -> norm_table.json written ({len(norm_table)} columns)")
 
-    checkpoint("[4/6] Violin KDE curves (14 attrs x 6 families)")
+    checkpoint("[5/7] Violin KDE curves (14 attrs x 6 families)")
     t = time.time()
     kde = compute_kde_curves(df, labels, norm_table)
     _dump(kde, "kde_curves.json")
-    checkpoint(f"[4/6] -> kde_curves.json written  ({time.time()-t:.1f}s)")
+    checkpoint(f"[5/7] -> kde_curves.json written  ({time.time()-t:.1f}s)")
 
 
     # UMAP (the expensive step) + everything derived from it#
-    checkpoint("[5/6] UMAP embedding - THE SLOW STEP (10-30+ min on full data "
+    checkpoint("[6/7] UMAP embedding - THE SLOW STEP (10-30+ min on full data "
                "when seeded; use --fast for parallel). Progress prints below.")
     t = time.time()
     coords = compute_umap_coords(df)
     np.save("umap_coords.npy", coords)
-    checkpoint(f"[5/6] -> umap_coords.npy written {coords.shape}  ({time.time()-t:.1f}s)")
+    checkpoint(f"[6/7] -> umap_coords.npy written {coords.shape}  ({time.time()-t:.1f}s)")
 
-    checkpoint("[6/6] Spatial grid (two-tier bubbles + complete brush index)")
+    checkpoint("[7/7] Spatial grid (two-tier bubbles + complete brush index)")
     grid = compute_spatial_grid(coords, labels, df)
     _dump(grid, "spatial_grid.json")
     m = grid["meta"]
-    checkpoint(f"[6/6] -> spatial_grid.json written: {len(grid['cells'])} cells "
+    checkpoint(f"[7/7] -> spatial_grid.json written: {len(grid['cells'])} cells "
                f"(grid {m['grid_cols']}x{m['grid_rows']}, min_count={m['min_count']}, "
                f"schema={m['schema']})")
 

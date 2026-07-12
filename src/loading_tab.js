@@ -1,7 +1,5 @@
 /*
-* loading_tab.js — Loading tab: dataset parse, loading animation, data preview
-* Owner: P2 · Branch: p2-ui
-* See docs/nested_model_L1_L2_L3_L4_report.md §4.0.1, §4.0.2
+* loading_tab.js - Loading tab: dataset parse, loading animation, data preview
 *
 * Fetch-only loading: the heavy computation (UMAP, family labels, norm
 * table, KDE curves, spatial grid) already ran once, offline, in
@@ -10,8 +8,7 @@
 * freeze. This file just drives the worker and renders its result.
 */
 
-// non-ASCII written as \u escapes so the labels render correctly regardless
-// of how the browser guesses this file's text encoding (… = …, × = ×)
+
 const LOADING_STEPS = [
     "Parsing dataset (tab-separated, Latin-1)…",
     "Loading precomputed UMAP coordinates…",

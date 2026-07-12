@@ -1,4 +1,4 @@
-// pipeline.js — shared cross-view session state + shared config
+// pipeline.js - shared cross-view session state + shared config
 
 // T1 (t1_modal.js) is the sole writer of session.projects.
 

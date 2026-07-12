@@ -1,14 +1,14 @@
-// t3_violin.js — T3 Violin Plot (Set Intersection view)
+// t3_violin.js - T3 Violin Plot (Set Intersection view)
 
 // Uses 1D KDE, normalised axis 
 // from T1 lines with projrst constarin lines
 
 // gestures:
-// left-click        toggle focus on/off (column grows, others shrink)
-// left-click + drag filter selection -> session.brush_t3, cross-view filter
-// right-click + drag local zoom (header renders italic) -> display-only, never touches session/pipeline
-// right-click       cancel this column's zoom
-// middle-click      cancel this column's filter selection
+// left-click           toggle focus on/off (column grows, others shrink)
+// left-click + drag    filter selection -> session.brush_t3, cross-view filter
+// right-click + drag   local zoom (header renders italic) -> display-only, never touches session/pipeline
+// right-click          cancel this column's zoom
+// middle-click         cancel this column's filter selection
 
 
 let t3SecondaryVisible = false;
