@@ -80,6 +80,12 @@
 .constraint-table input.invalid {
     border-color: var(--color-danger) !important;
 }
+.field-error {
+    color: var(--color-danger);
+    font-size: 0.7rem;
+    margin-top: 2px;
+    line-height: 1.2;
+}
 
 .constraint-table {
     width: 100%;
@@ -99,13 +105,14 @@
 .constraint-table tr.most-used td:first-child { font-weight: 600; }
 
 /* secondary-tier rows are hidden until "See more" adds .show-secondary to
-   the form container. Toggling the class (not re-rendering) means anything
-   already typed into a secondary row survives being hidden and re-shown. */
+   the form container. (so typed into a secondary row values don't desappear). */
 #projectFormArea:not(.show-secondary) .secondary-attr { display: none; }
 
 #t1SeeMoreBtn { margin-top: var(--space-2); margin-right: var(--space-2); }
 
-.constraint-table input[type="number"] {
+/* floor-input is type="text" (not type="number"), browser input styling and looks inconsistent hennce raw text. */
+.constraint-table input[type="number"],
+.constraint-table input[type="text"] {
     width: 100%;
     border: 1px solid var(--border-color);
     border-radius: 4px;

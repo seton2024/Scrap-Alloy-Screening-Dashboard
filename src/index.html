@@ -9,7 +9,7 @@
 
 <html lang="en">
 <head>
-    <meta charset="Latin-1">
+    <meta charset="UTF-8">
     <title>Aluminum Alloy Screening Dashboard</title>
 
     <link rel="stylesheet" type="text/css" href="style.css">
@@ -139,6 +139,13 @@
                 <button id="seeMoreBtn" class="btn-secondary" hidden>See more</button>
             </div>
             <div class="view-body">
+                <div class="view-legend" id="legendT3">
+                    <b>Left-click</b> column: toggle focus on/off &nbsp;·&nbsp;
+                    <b>Left-drag</b>: filter selection &nbsp;·&nbsp;
+                    <b>Right-drag</b>: zoom &nbsp;·&nbsp;
+                    <b>Right-click</b>: cancel zoom &nbsp;·&nbsp;
+                    <b>Middle-click</b>: cancel filter selection
+                </div>
                 <canvas id="canvasT3" width="1100" height="320"></canvas>
                 <div class="view-placeholder" id="placeholderT3">Waiting for data to load…</div>
             </div>

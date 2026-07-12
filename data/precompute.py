@@ -102,7 +102,7 @@ def _normalize(values, cmin, cmax, higher_is_better):
 
 
 def compute_kde_curves(df, labels, norm_table):
-    #1-D KDE per attribute per non-Mixed family, on a 200-point grid over the normalized [0,1] axis (inversion already baked in). 
+    #1-D KDE per attribute per family (all 7, including Mixed), on a 200-point grid over the normalized [0,1] axis (inversion already baked in).
     grid = np.linspace(0.0, 1.0, KDE_GRID)
     rng = np.random.RandomState(RANDOM_STATE)
     curves = {}
