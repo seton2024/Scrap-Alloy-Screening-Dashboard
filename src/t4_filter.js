@@ -784,12 +784,16 @@ function t4HandlePickClick(g, px, py) {
         }
     }
 
-    // Step 2: no badge nearby → look for the closest unpicked point within HIT_RADIUS.
+    // Step 2: no badge nearby → look for the closest unpicked point within
+    // HIT_RADIUS. NOT filtered by session.active_set: drawScatterPanel draws
+    // every row regardless of active_set (only feasibility affects how a
+    // point looks), so gating clicks by active_set made plenty of visibly
+    // on-screen points unclickable — most noticeably right after a T2/T3
+    // brush, since that's exactly when active_set stops being null and the
+    // panel also auto-zooms, making the mismatch impossible to miss.
     if (bestIdx < 0) {
         let bestDist = T4_HIT_RADIUS * T4_HIT_RADIUS;
-        const active = session.active_set;
         for (let i = 0; i < session.rowCount; i++) {
-            if (active && !active.has(i)) continue;   // skip anything filtered out by brushes
             const dx = g.xToPx(g.colX[i]) - px, dy = g.yToPx(g.colY[i]) - py;
             const d = dx * dx + dy * dy;
             if (d < bestDist) { bestDist = d; bestIdx = i; }
