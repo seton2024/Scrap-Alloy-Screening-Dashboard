@@ -160,6 +160,20 @@ h1, h2, h3, h4 { font-family: var(--font-base); margin: 0 0 var(--space-2); }
 }
 .btn-secondary:hover { background: #f0f0f0; }
 
+/* T4 project toggle — controls which project a new click picks into */
+.t4-project-toggle { display: flex; gap: 4px; margin-bottom: var(--space-2); }
+.t4-toggle-btn {
+    font: 500 0.8rem var(--font-base);
+    padding: 4px 12px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border-color);
+    background: #fff;
+    color: var(--text-color);
+    cursor: pointer;
+}
+.t4-toggle-btn.active[data-project="A"] { background: var(--color-warning); border-color: var(--color-warning); color: #fff; }
+.t4-toggle-btn.active[data-project="B"] { background: var(--color-batbox); border-color: var(--color-batbox); color: #fff; }
+
 /* ---------------------------------------------------------------- */
 /* Tab bar                                                            */
 /* ---------------------------------------------------------------- */
@@ -570,6 +584,11 @@ div.tooltip {
 .legend-item   { display: inline-flex; align-items: center; gap: 4px; margin: 0 12px 4px 0; font-size: 12px; }
 .legend-swatch { width: 12px; height: 12px; display: inline-block; border-radius: 2px; }
 .shared-legend { margin-bottom: 8px; }
+
+/* T2 legend: two tiny canvases per family (filled+textured swatch, then
+   the fringe marker outline) drawn with the exact same code as the chart */
+.legend-swatch-canvas, .legend-marker-canvas { width: 16px; height: 16px; vertical-align: middle; }
+.legend-caption { flex-basis: 100%; color: var(--text-muted); font-size: 0.7rem; margin-top: 2px; }
 .t4-row        { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 8px; }
 .scatter-panel { display: flex; flex-direction: column; gap: 4px; }
 .axis-select   { font-size: 11px; color: #333; }

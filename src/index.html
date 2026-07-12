@@ -126,6 +126,7 @@
                 <span class="view-tag">T2</span>
             </div>
             <div class="view-body">
+                <div id="legendT2" class="shared-legend"></div>
                 <canvas id="canvasT2" width="1100" height="320"></canvas>
                 <div class="view-placeholder" id="placeholderT2">Waiting for data to load…</div>
             </div>
@@ -159,6 +160,12 @@
             </div>
             <div class="view-body">
                 <div id="legendT4" class="shared-legend"></div>
+
+                <!-- only shown in dual-project mode; controls which project the next T4 click picks into -->
+                <div id="t4ProjectToggle" class="t4-project-toggle" hidden>
+                    <button id="t4ToggleA" class="t4-toggle-btn active" data-project="A">Project A</button>
+                    <button id="t4ToggleB" class="t4-toggle-btn" data-project="B">Project B</button>
+                </div>
 
                 <!-- the 3 default plots sit next to each other in one row -->
                 <div class="t4-row" id="t4DefaultRow">

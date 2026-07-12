@@ -24,6 +24,7 @@ function initT2() {
     });
     pipeline.onChange("projects", renderT2);
     pipeline.onChange("picks", renderT2);
+    pipeline.onChange("brush_t2", renderT2);
 
     t2Tooltip = document.createElement("div");
     t2Tooltip.className = "tooltip";
@@ -34,6 +35,7 @@ function initT2() {
     canvas.addEventListener("mousedown", t2OnMouseDown);
     canvas.addEventListener("mousemove", t2OnMouseMove);
     canvas.addEventListener("mouseleave", function () { t2Tooltip.hidden = true; });
+    canvas.addEventListener("dblclick", function () { pipeline.set("brush_t2", null); });
     window.addEventListener("mouseup", t2OnMouseUp);
 }
 
@@ -60,68 +62,196 @@ function t2BuildScale(meta, W, H) {
     };
 }
 
-/* 8x8 offscreen canvas per family: solid hue + a texture overlay so
- * families stay distinct in greyscale too. Built once, cached on
- * t2Patterns (rebuilt if the canvas context ever changes). */
+/* 8x8 offscreen canvas per family — identical to T3's buildFamilyPatterns()
+ * (t3_violin.js) so the same family reads as the same texture on both views.
+ * Built once, cached on t2Patterns. */
 function t2BuildPatterns(ctx) {
     return FAMILY_TEXTURES.map(function (texture, famIdx) {
-        const c = document.createElement("canvas");
-        c.width = 8; c.height = 8;
-        const pctx = c.getContext("2d");
-        pctx.fillStyle = FAMILY_COLORS[famIdx];
-        pctx.fillRect(0, 0, 8, 8);
-
-        pctx.strokeStyle = "rgba(0,0,0,0.4)";
-        pctx.fillStyle = "rgba(0,0,0,0.4)";
-        pctx.lineWidth = 1.4;
-        pctx.beginPath();
+        const s = 8;
+        const off = document.createElement("canvas");
+        off.width = s; off.height = s;
+        const o = off.getContext("2d");
+        o.fillStyle = FAMILY_COLORS[famIdx];
+        o.fillRect(0, 0, s, s);
+        o.strokeStyle = "rgba(255,255,255,0.65)";
+        o.fillStyle = "rgba(255,255,255,0.7)";
+        o.lineWidth = 1;
+        o.beginPath();
         switch (texture) {
-            case "horizontal": pctx.moveTo(0, 4); pctx.lineTo(8, 4); break;
-            case "vertical":   pctx.moveTo(4, 0); pctx.lineTo(4, 8); break;
-            case "diagonal":   pctx.moveTo(0, 0); pctx.lineTo(8, 8); break;
-            case "crosshatch": pctx.moveTo(0, 4); pctx.lineTo(8, 4); pctx.moveTo(4, 0); pctx.lineTo(4, 8); break;
-            case "dots":       pctx.arc(4, 4, 1.4, 0, 2 * Math.PI); break;
-            case "stipple":
-                [[2, 2], [6, 3], [3, 6], [6, 7]].forEach(function (p) { pctx.moveTo(p[0] + 1, p[1]); pctx.arc(p[0], p[1], 1, 0, 2 * Math.PI); });
-                break;
-            case "wave":
-                pctx.moveTo(0, 4); pctx.quadraticCurveTo(2, 1, 4, 4); pctx.quadraticCurveTo(6, 7, 8, 4);
-                break;
-            default: break; // "solid" — no overlay
+            case "horizontal": o.moveTo(0, 2.5); o.lineTo(s, 2.5); o.moveTo(0, 6.5); o.lineTo(s, 6.5); o.stroke(); break;
+            case "vertical":   o.moveTo(2.5, 0); o.lineTo(2.5, s); o.moveTo(6.5, 0); o.lineTo(6.5, s); o.stroke(); break;
+            case "diagonal":   o.moveTo(0, 8); o.lineTo(8, 0); o.moveTo(-2, 2); o.lineTo(2, -2); o.moveTo(6, 10); o.lineTo(10, 6); o.stroke(); break;
+            case "crosshatch": o.moveTo(0, 8); o.lineTo(8, 0); o.moveTo(0, 0); o.lineTo(8, 8); o.stroke(); break;
+            case "dots":       o.arc(4, 4, 1.4, 0, 6.29); o.fill(); break;
+            case "wave":       o.moveTo(0, 4); o.quadraticCurveTo(2, 1, 4, 4); o.quadraticCurveTo(6, 7, 8, 4); o.stroke(); break;
+            // "solid": nothing extra
         }
-        pctx.stroke();
-        pctx.fill();
-        return ctx.createPattern(c, "repeat");
+        return ctx.createPattern(off, "repeat");
+    });
+}
+
+// stroke-only marker per FAMILY_MARKERS (pipeline.js), centered at (px,py)
+// with characteristic size r. Used for fringe cells only — majors stay
+// circular filled bubbles per the T2 spec.
+function t2DrawMarker(ctx, shape, px, py, r, color) {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.3;
+    ctx.beginPath();
+    switch (shape) {
+        case "square":
+            ctx.rect(px - r, py - r, 2 * r, 2 * r);
+            break;
+        case "triangle":
+            ctx.moveTo(px, py - r);
+            ctx.lineTo(px + r * 0.87, py + r * 0.5);
+            ctx.lineTo(px - r * 0.87, py + r * 0.5);
+            ctx.closePath();
+            break;
+        case "diamond":
+            ctx.moveTo(px, py - r); ctx.lineTo(px + r, py);
+            ctx.lineTo(px, py + r); ctx.lineTo(px - r, py);
+            ctx.closePath();
+            break;
+        case "cross":
+            ctx.moveTo(px - r, py - r); ctx.lineTo(px + r, py + r);
+            ctx.moveTo(px + r, py - r); ctx.lineTo(px - r, py + r);
+            break;
+        case "plus":
+            ctx.moveTo(px - r, py); ctx.lineTo(px + r, py);
+            ctx.moveTo(px, py - r); ctx.lineTo(px, py + r);
+            break;
+        case "star": {
+            const spikes = 5, outerR = r, innerR = r * 0.45;
+            for (let i = 0; i < spikes * 2; i++) {
+                const rad = i % 2 === 0 ? outerR : innerR;
+                const angle = (Math.PI / spikes) * i - Math.PI / 2;
+                const x = px + Math.cos(angle) * rad, y = py + Math.sin(angle) * rad;
+                if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+            }
+            ctx.closePath();
+            break;
+        }
+        default: // "circle"
+            ctx.arc(px, py, r, 0, 2 * Math.PI);
+    }
+    ctx.stroke();
+}
+
+// One row per family: filled+textured swatch (= major bubble look) next to
+// the fringe marker outline, plus a one-line caption. Built once — the tiny
+// canvases don't need to redraw on every renderT2() call, only exist.
+let t2LegendBuilt = false;
+function t2RenderLegend() {
+    if (t2LegendBuilt) return;
+    t2LegendBuilt = true;
+
+    let html = "";
+    for (let i = 0; i < FAMILY_NAMES.length; i++) {
+        html += '<span class="legend-item">' +
+            '<canvas class="legend-swatch-canvas" width="16" height="16" data-fam="' + i + '" data-kind="swatch"></canvas>' +
+            '<canvas class="legend-marker-canvas" width="16" height="16" data-fam="' + i + '" data-kind="marker"></canvas>' +
+            FAMILY_NAMES[i] +
+            '</span>';
+    }
+    // plain ASCII only in this string — the page is served as Latin-1, and a
+    // literal non-ASCII char here (curly quote, proportional sign) would
+    // mojibake exactly like the degree-sign issue documented in pipeline.js
+    html += '<div class="legend-caption">Filled bubble = large cluster, size scales with count &middot; outline shape = small cluster (fixed size) &middot; ' +
+            'faded = doesn\'t match the active project, or outside the current selection</div>' +
+            '<div class="legend-caption">Bubble border: thin = Project A only &middot; thick = Project B only &middot; ' +
+            'double line = matches both</div>';
+
+    const container = document.getElementById("legendT2");
+    container.innerHTML = html;
+
+    container.querySelectorAll("canvas").forEach(function (c) {
+        const fam = Number(c.dataset.fam);
+        const cctx = c.getContext("2d");
+        if (c.dataset.kind === "swatch") {
+            cctx.beginPath();
+            cctx.arc(8, 8, 7, 0, 2 * Math.PI);
+            cctx.fillStyle = t2Patterns[fam];
+            cctx.fill();
+            cctx.strokeStyle = "rgba(0,0,0,0.55)";
+            cctx.stroke();
+        } else {
+            t2DrawMarker(cctx, FAMILY_MARKERS[fam], 8, 8, 6, FAMILY_COLORS[fam]);
+        }
     });
 }
 
 /* ==================================================================
- * Feasibility — the ONLY thing opacity encodes. Checks every effective
- * threshold of a project (not just 2 axes), per FIX R2.
+ * Brush dimming — cells with no member inside the active brush get faded
+ * further on top of their feasibility opacity. No active brush -> nothing
+ * is dimmed by this (feasibility alone still applies).
  * ================================================================== */
-function t2RowIsFeasible(i) {
-    if (session.projects.length === 0) return true;
-    for (let p = 0; p < session.projects.length; p++) {
-        const thresholds = session.projects[p].thresholds;
-        let ok = true;
-        for (const key in thresholds) {
-            const t = thresholds[key];
-            if (!t || t.effective == null) continue;
-            const a = ATTR_BY_KEY[key];
-            const v = session.columns[a.col][i];
-            const pass = a.higherIsBetter ? v >= t.effective : v <= t.effective;
-            if (!pass) { ok = false; break; }
-        }
-        if (ok) return true; // satisfies this project fully -> feasible
+const T2_UNBRUSHED_DIM = 0.2;
+
+function t2CellInBrush(cell) {
+    const brush = session.brush_t2;
+    if (!brush) return true;
+    for (let k = 0; k < cell.rowIds.length; k++) {
+        if (brush.rowIds.has(cell.rowIds[k])) return true;
     }
     return false;
 }
 
-function t2CellIsFeasible(cell) {
+/* ==================================================================
+ * Feasibility — checks every effective threshold of a project (not just
+ * 2 axes), per FIX R2. Split per-project (not just "any project") so the
+ * contour stroke below can tell A-only from B-only from both.
+ * ================================================================== */
+function t2RowMeetsProject(project, i) {
+    const thresholds = project.thresholds;
+    for (const key in thresholds) {
+        const t = thresholds[key];
+        if (!t || t.effective == null) continue;
+        const a = ATTR_BY_KEY[key];
+        const v = session.columns[a.col][i];
+        const pass = a.higherIsBetter ? v >= t.effective : v <= t.effective;
+        if (!pass) return false;
+    }
+    return true;
+}
+
+function t2CellMeetsProject(cell, project) {
     for (let k = 0; k < cell.rowIds.length; k++) {
-        if (t2RowIsFeasible(cell.rowIds[k])) return true;
+        if (t2RowMeetsProject(project, cell.rowIds[k])) return true;
     }
     return false;
+}
+
+// feasible for opacity purposes = matches at least one active project (or
+// no project exists yet, in which case nothing is filtered)
+function t2CellIsFeasible(cell) {
+    if (session.projects.length === 0) return true;
+    for (let p = 0; p < session.projects.length; p++) {
+        if (t2CellMeetsProject(cell, session.projects[p])) return true;
+    }
+    return false;
+}
+
+/* Blob contour stroke — which project(s) a major cell satisfies, encoded
+ * as stroke weight only (no color, so it never fights the family hue fill).
+ * Assumes the path is already set on ctx (beginPath + arc, not yet
+ * stroked); strokes it in place 1-3 times without re-declaring the path.
+ *   A only   -> 1px solid black
+ *   B only   -> 3px solid white
+ *   A and B  -> "railroad track": 5px black, 2px white gap, 1px black
+ *   neither  -> the old default thin translucent stroke */
+function t2StrokeContour(ctx, feasibleA, feasibleB) {
+    if (feasibleA && feasibleB) {
+        ctx.strokeStyle = "#000"; ctx.lineWidth = 5; ctx.stroke();
+        ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.stroke();
+        ctx.strokeStyle = "#000"; ctx.lineWidth = 1; ctx.stroke();
+    } else if (feasibleB) {
+        ctx.strokeStyle = "#636363"; ctx.lineWidth = 3; ctx.stroke();
+    } 
+    else if (feasibleA) {
+        ctx.strokeStyle = "#000"; ctx.lineWidth = 1; ctx.stroke();
+    } else {
+        ctx.strokeStyle = "rgba(0,0,0,0.55)"; ctx.lineWidth = 1; ctx.stroke();
+    }
 }
 
 /* ==================================================================
@@ -137,6 +267,7 @@ function renderT2() {
     ctx.clearRect(0, 0, W, H);
 
     if (!t2Patterns) t2Patterns = t2BuildPatterns(ctx);
+    t2RenderLegend();
 
     const quadtree = session.quadtree;
     const geom = t2BuildScale(quadtree.meta, W, H);
@@ -151,7 +282,9 @@ function renderT2() {
         const feasible = t2CellIsFeasible(cell);
         // feasible cells sit at 75% opacity (not 100%) so overlapping bubbles
         // blend instead of one fully hiding another; infeasible stays faint
-        ctx.globalAlpha = feasible ? 0.75 : 0.1;
+        let alpha = feasible ? 0.75 : 0.1;
+        if (!t2CellInBrush(cell)) alpha *= T2_UNBRUSHED_DIM; // outside the active selection
+        ctx.globalAlpha = alpha;
 
         if (cell.tier === "major") {
             const r = rUnit * Math.sqrt(cell.count);
@@ -159,15 +292,16 @@ function renderT2() {
             ctx.arc(px, py, r, 0, 2 * Math.PI);
             ctx.fillStyle = t2Patterns[cell.dominant];
             ctx.fill();
-            ctx.strokeStyle = "rgba(0,0,0,0.55)";
-            ctx.lineWidth = 1;
-            ctx.stroke();
+
+            const feasibleA = session.projects[0] ? t2CellMeetsProject(cell, session.projects[0]) : false;
+            const feasibleB = session.projects[1] ? t2CellMeetsProject(cell, session.projects[1]) : false;
+            t2StrokeContour(ctx, feasibleA, feasibleB);
         } else {
-            ctx.beginPath();
-            ctx.arc(px, py, T2_FRINGE_RADIUS, 0, 2 * Math.PI);
-            ctx.strokeStyle = FAMILY_COLORS[cell.dominant];
-            ctx.lineWidth = 1.3;
-            ctx.stroke();
+            // fringe cells have no fill/texture channel — the family's
+            // FAMILY_MARKERS shape (pipeline.js) is their only redundant
+            // channel besides stroke color, so they stay tellable apart in
+            // greyscale/b&w print same as the textured major bubbles
+            t2DrawMarker(ctx, FAMILY_MARKERS[cell.dominant], px, py, T2_FRINGE_RADIUS, FAMILY_COLORS[cell.dominant]);
         }
     });
     ctx.globalAlpha = 1;
@@ -313,8 +447,11 @@ function t2OnMouseUp() {
     const y0px = Math.min(t2Brush.y0, t2Brush.y1), y1px = Math.max(t2Brush.y0, t2Brush.y1);
 
     if (!geom || (x1px - x0px < 4 && y1px - y0px < 4)) {
+        // too small to be a real drag (a plain click) — just drop the
+        // transient rectangle preview, leave any existing selection alone;
+        // deselecting is a deliberate double-click, not an accidental click
         t2Brush = null;
-        pipeline.set("brush_t2", null);
+        renderT2();
         return;
     }
 
