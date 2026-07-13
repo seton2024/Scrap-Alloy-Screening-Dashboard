@@ -71,13 +71,43 @@ function t4OnProjectsChanged() {
 }
 
 // One colored swatch + label per family, shown once at the top of T4.
+let t4LegendBuilt = false;
 function renderT4Legend() {
+    if (t4LegendBuilt) return;
+    t4LegendBuilt = true;
+
+    // legend can render before drawStackedBar ever runs, so build the
+    // textures here too if nobody has yet (cheap, and t4Patterns is cached)
+    if (!t4Patterns) t4Patterns = t4BuildPatterns(document.createElement("canvas").getContext("2d"));
+
     let html = "";
     for (let i = 0; i < FAMILY_NAMES.length; i++) {
-        html += '<span class="legend-item"><span class="legend-swatch" style="background:' +
-                FAMILY_COLORS[i] + '"></span>' + FAMILY_NAMES[i] + '</span>';
+        html += '<span class="legend-item">' +
+            '<canvas class="legend-swatch-canvas" width="16" height="16" data-fam="' + i + '" data-kind="swatch"></canvas>' +
+            '<canvas class="legend-marker-canvas" width="16" height="16" data-fam="' + i + '" data-kind="marker"></canvas>' +
+            FAMILY_NAMES[i] +
+            '</span>';
     }
-    document.getElementById("legendT4").innerHTML = html;
+    html += '<div class="legend-caption">Bar swatch = scrap-mix texture (panel 3) &middot; point shape = family marker (scatter clouds)</div>' +
+            '<div class="legend-caption">Full color + dark outline = feasible (matches an active project) &middot; faint, no outline = not feasible</div>';
+
+    const container = document.getElementById("legendT4");
+    container.innerHTML = html;
+
+    container.querySelectorAll("canvas").forEach(function (c) {
+        const fam = Number(c.dataset.fam);
+        const cctx = c.getContext("2d");
+        if (c.dataset.kind === "swatch") {
+            cctx.beginPath();
+            cctx.arc(8, 8, 7, 0, 2 * Math.PI);
+            cctx.fillStyle = t4Patterns[fam];
+            cctx.fill();
+            cctx.strokeStyle = "rgba(0,0,0,0.55)";
+            cctx.stroke();
+        } else {
+            drawFamilyMarker(cctx, FAMILY_MARKERS[fam], 8, 8, 6, FAMILY_COLORS[fam], FAMILY_COLORS_DARK[fam], 1.5);
+        }
+    });
 }
 
 // redraw base + overlay for all panels. Use for load, active_set, projects,
