@@ -4,7 +4,7 @@
 // from T1 lines with projrst constarin lines
 
 // gestures:
-// left-click           toggle focus on/off (column grows, others shrink)
+// left-click           focus on/off (column grows, others shrink)
 // left-click + drag    filter selection -> session.brush_t3, cross-view filter
 // right-click + drag   local zoom (header renders italic) -> display-only, never touches session/pipeline
 // right-click          cancel this column's zoom

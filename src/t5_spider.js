@@ -44,9 +44,7 @@ function t5OnHoverMove(evt, canvasId, project) {
     t5SetHoveredAxis(key ? { key: key, project: project } : null);
 }
 
-// only touch the pipeline when the hovered axis actually changes — mousemove
-// fires continuously, and pipeline.set always emits, so re-setting the same
-// value every frame would force T6 to needlessly re-highlight on every pixel
+// touch the pipeline when the hovered axis actually changes 
 function t5SetHoveredAxis(next) {
     const cur = session.hovered_axis;
     const unchanged = (!cur && !next) || (cur && next && cur.key === next.key && cur.project === next.project);
@@ -66,8 +64,7 @@ function renderT5Spiders() {
     document.getElementById("canvasT5-B").hidden = !dual;
     document.getElementById("placeholderT5").hidden = session.picks.length > 0;
 
-    // session.stock_alerts is already fresh here — pipeline.set() recomputes
-    // it before "picks"/"projects" listeners (this one included) fire
+    // session.stock_alerts is already fresh here
     drawSpider("canvasT5-A", 0);
     if (dual) drawSpider("canvasT5-B", 1);
 
@@ -217,10 +214,7 @@ function drawSpiderLegend(ctx, picks, project, legendTop, rowH) {
     });
 }
 
-//STOCK ALLERTS
-// recipeFraction / picksForProject / the actual alert computation now live
-// in pipeline.js (recomputeStockAlerts) so every view reads the same
-// already-fresh session.stock_alerts instead of each computing its own.
+//STOCK ALLERTS (computation in pipline)
 
 // does any stock alert implicate this specific pick? (used to draw amber rings)
 function pickHasStockAlert(pick) {
@@ -236,11 +230,9 @@ function mixtureName(rowId) {
     return session.columns["Mixture ID"] ? session.columns["Mixture ID"][rowId] : "Row " + rowId;
 }
 
-// two visually distinct alerts: 
-//          single uses the plain warning icon at the banner's base indent;
-//          combined names BOTH implicated alloys 
-//               is set apart by a different leading glyph
-//               a CSS indent
+// 2 allert types: 
+//          single: ⚠;
+//          combined: names BOTH implicated alloys and ↳;
 function renderStockAlertBanner() {
     const banner = document.getElementById("alertBanner");
     if (!session.stock_alerts.length) { banner.innerHTML = ""; return; }

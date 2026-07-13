@@ -53,7 +53,7 @@ function buildProjectFormEl(project, slot) {
     wrap.innerHTML =
         '<label>Project ' + slot + ' name</label>' +
         '<input type="text" class="proj-name" value="' + escapeHtml(project.name || "") + '">' +
-        '<label>Batch size (kg)</label>' +
+        '<label>Batch size (tonnes)</label>' +
         '<input type="number" class="proj-batch" min="1" step="1" value="' + (project.batch_kg || 1000) + '">' +
         buildConstraintTableHtml(project);
 
