@@ -162,7 +162,7 @@
 
 ---
 
-## Pipeline Wiring (`pipeline.js`)
+## Pipeline Wiring (`datavis.js`)
 
 - [ ] T2 brush → recompute `active_set` → T3 highlights + T4 dims update <!-- active_set recomputes and T4 re-dims, but T3 does NOT subscribe to active_set so it doesn't re-highlight on a T2 brush -->
 - [x] T3 brush → recompute `active_set` → T2 re-dims + T4 updates

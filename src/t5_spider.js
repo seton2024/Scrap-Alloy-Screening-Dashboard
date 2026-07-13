@@ -1,8 +1,6 @@
-/*
-* t5_spider.js - T5 Spider Chart (Comparison view) + stock alerts
-* 
-* One spider per active project: up to 4 alloys picked, distinguished by stroke dash style. 
-*/
+// t5_spider.js - T5 Spider Chart (Comparison view) + stock alerts
+
+// 1 spider per active project, up to 4 alloys, each a different dash style.
 
 
 const T5_AXIS_ORDER = ["CSC", "YS", "TC", "ER", "Hardness", "Density", "LinearTE"];
@@ -44,9 +42,8 @@ function t5OnHoverMove(evt, canvasId, project) {
     t5SetHoveredAxis(key ? { key: key, project: project } : null);
 }
 
-// only touch the pipeline when the hovered axis actually changes — mousemove
-// fires continuously, and pipeline.set always emits, so re-setting the same
-// value every frame would force T6 to needlessly re-highlight on every pixel
+// only touch the pipeline when the hovered axis actually changes, or
+// T6 would re-highlight on every mousemove pixel
 function t5SetHoveredAxis(next) {
     const cur = session.hovered_axis;
     const unchanged = (!cur && !next) || (cur && next && cur.key === next.key && cur.project === next.project);
@@ -198,6 +195,7 @@ function drawSpiderLegend(ctx, picks, project, legendTop, rowH) {
     ctx.textBaseline = "middle";
     picks.forEach(function (pick, slot) {
         const rowName = session.columns["Mixture ID"] ? session.columns["Mixture ID"][pick.rowId] : "Row " + pick.rowId;
+        const label = (pick.project === "B" ? "B" : "A") + pick.number + " (" + rowName + ")";
 
         // dashed swatch matching this alloy's stroke style
         ctx.strokeStyle = ALLOY_INK; ctx.lineWidth = 2;
@@ -212,17 +210,15 @@ function drawSpiderLegend(ctx, picks, project, legendTop, rowH) {
         const stockHit = pickHasStockAlert(pick);
         ctx.fillStyle = violates ? "#C1121F" : "#333";
         ctx.font = (violates ? "700 " : "") + "10px Inter, sans-serif";
-        ctx.fillText((stockHit ? "⚠ " : "") + rowName, 36, y);
+        ctx.fillText((stockHit ? "⚠ " : "") + label, 36, y);
         y += rowH;
     });
 }
 
-//STOCK ALLERTS
-// recipeFraction / picksForProject / the actual alert computation now live
-// in pipeline.js (recomputeStockAlerts) so every view reads the same
-// already-fresh session.stock_alerts instead of each computing its own.
+// stock alerts: computed once in datavis.js (recomputeStockAlerts),
+// every view reads the same session.stock_alerts.
 
-// does any stock alert implicate this specific pick? (used to draw amber rings)
+// does this pick have a stock alert? used to draw amber rings
 function pickHasStockAlert(pick) {
     return session.stock_alerts.some(function (al) {
         if (al.type === "single") return al.rowId === pick.rowId;
@@ -236,17 +232,13 @@ function mixtureName(rowId) {
     return session.columns["Mixture ID"] ? session.columns["Mixture ID"][rowId] : "Row " + rowId;
 }
 
-// two visually distinct alerts: 
-//          single uses the plain warning icon at the banner's base indent;
-//          combined names BOTH implicated alloys 
-//               is set apart by a different leading glyph
-//               a CSS indent
+// 2 alert styles: single = plain warning icon, combined = names both
+// alloys, different icon, extra CSS indent.
 function renderStockAlertBanner() {
     const banner = document.getElementById("alertBanner");
     if (!session.stock_alerts.length) { banner.innerHTML = ""; return; }
 
-    // de-duplicate by content, not by object identity (single: rowId+scrap;
-    // combined: the specific A+B pair+scrap)
+    // de-dupe by content (rowId+scrap, or A+B pair+scrap), not object identity
     const seen = new Set();
     const unique = session.stock_alerts.filter(function (al) {
         const key = al.type === "single"

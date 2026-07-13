@@ -27,7 +27,7 @@ The dataset has 70 columns per alloy: 6 scrap-mixture input ratios (summing to 1
 | **T5 - Compare Candidates** | Spider/radar charts for the picked alloys (one per project), with constraint-violation and stock-shortfall markers |
 | **T6 - Characteristics** | Full property lookup table for the picked alloys |
 
-All views read from one shared, in-memory state object (`session` in `src/pipeline.js`); each field has exactly one writer, and every other view is a read-only subscriber. See the comments at the top of `pipeline.js` for the exact contract.
+All views read from one shared, in-memory state object (`session` in `src/datavis.js`); each field has exactly one writer, and every other view is a read-only subscriber. See the comments at the top of `datavis.js` for the exact contract.
 
 ---
 
@@ -37,7 +37,7 @@ All views read from one shared, in-memory state object (`session` in `src/pipeli
 alloy/
 ├── src/                      # everything that runs in the browser
 │   ├── index.html            # page shell: Loading tab + Dashboard tab (T1-T6 layout)
-│   ├── pipeline.js           # shared session state, pub/sub hub, attribute/family config
+│   ├── datavis.js            # shared session state, pub/sub hub, attribute/family config
 │   ├── loading_tab.js        # drives the loading Web Worker, renders the raw-data preview table
 │   ├── parse_worker.js       # Web Worker: parses the uploaded dataset file + fetches all precomputed files
 │   ├── t1_modal.js / .css    # Project Setup modal

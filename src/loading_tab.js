@@ -1,12 +1,7 @@
-/*
-* loading_tab.js - Loading tab: dataset parse, loading animation, data preview
-*
-* Fetch-only loading: the heavy computation (UMAP, family labels, norm
-* table, KDE curves, spatial grid) already ran once, offline, in
-* data/precompute.py. All of it — plus parsing the raw dataset file — runs
-* in parse_worker.js so the main thread and its progress animation never
-* freeze. This file just drives the worker and renders its result.
-*/
+// loading_tab.js - Loading tab: dataset parse, loading animation, data preview
+
+// Heavy compute ran once offline (data/precompute.py). parse_worker.js
+// fetches it and parses the raw file off the main thread; this file drives it.
 
 
 const LOADING_STEPS = [
@@ -88,9 +83,7 @@ function generateMixtureIds(rowCount) {
     return ids;
 }
 
-// everything the worker fetched/parsed lands here in one shot; write session
-// fields in dependency order and "loaded" last (subscribers read the rest of
-// session when it fires)
+// worker result lands here. Write fields in order, "loaded" last.
 function finishLoading(result) {
     session.rowCount = result.rowCount; // set before "columns" — subscribers may read it
 
@@ -112,12 +105,8 @@ function finishLoading(result) {
     document.getElementById("progressStepLabel").textContent = "Dataset ready.";
 
     pipeline.set("loaded", true);
-    // "+ Add Project" reads session.norm_table (T1's out-of-range validation)
-    // and session.projects (T2's pre-filter dimming) — both are meaningless
-    // before load finishes. openPage() only re-evaluates the button's hidden
-    // state when a tab is clicked, so if the user is already sitting on the
-    // Dashboard tab when loading completes, nothing would otherwise unhide
-    // the button — re-check it here too.
+    // re-check the button here too, in case the user is already on the
+    // Dashboard tab when loading finishes (openPage won't fire again)
     updateAddProjectBtnVisibility();
 
     currentPage = 0;
@@ -161,18 +150,14 @@ function renderPreviewPage() {
     document.getElementById("nextPageBtn").disabled = currentPage >= totalPages - 1;
 }
 
-// FAMILY_NAMES lives in pipeline.js (shared with T3/T5)
+// FAMILY_NAMES lives in datavis.js (shared with T3/T5)
 function familyLabelName(rowIndex) {
     if (!session.family_labels) return "N/A";
     return FAMILY_NAMES[session.family_labels[rowIndex]] || "N/A";
 }
 
-// "+ Add Project" only makes sense once BOTH the Dashboard tab is showing
-// AND the dataset has actually finished loading (T1's out-of-range check and
-// T2's pre-filter dimming both read data - session.norm_table, session.
-// columns - that doesn't exist until session.loaded is true). Previously this
-// only checked the tab, so the modal was reachable (and silently broken -
-// e.g. the out-of-range check always no-op'd) before any file was uploaded.
+// "+ Add Project" needs both the Dashboard tab open AND data loaded -
+// T1/T2 read session data that doesn't exist before session.loaded.
 function updateAddProjectBtnVisibility() {
     const dashboardActive = document.getElementById("Dashboard").classList.contains("active");
     document.getElementById("addProjectBtn").hidden = !dashboardActive || !session.loaded;
@@ -187,10 +172,7 @@ function openPage(pageName, elmnt) {
 
     updateAddProjectBtnVisibility();
 
-    // The dashboard canvases size themselves to their displayed dimensions,
-    // but that only works once they're actually visible. The first render
-    // fires while this tab is still hidden (zero-sized), so re-render the
-    // dashboard views the moment we switch to it.
+    // canvases size to their on-screen box, which is 0 while hidden - redraw on switch
     if (pageName === "Dashboard") rerenderDashboard();
 }
 

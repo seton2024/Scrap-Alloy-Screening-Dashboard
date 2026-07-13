@@ -10,7 +10,7 @@
 
 These are the bug-prevention and performance rules. Any PR violating one is wrong by definition.
 
-**I1 — Single writer per session key.** `t1_modal.js` writes `projects` only; the loading worker writes dataset fields + `loaded` only; T2 writes `brush_t2`; T3 writes `brush_t3`; T4 writes `picks_a`/`picks_b`; T5 writes `stock_alerts`; `pipeline.js` alone derives `active_set` and `feasible_mask`. Views never call each other — the only communication path is *write → `pipeline.onChange` → re-render*.
+**I1 — Single writer per session key.** `t1_modal.js` writes `projects` only; the loading worker writes dataset fields + `loaded` only; T2 writes `brush_t2`; T3 writes `brush_t3`; T4 writes `picks_a`/`picks_b`; T5 writes `stock_alerts`; `datavis.js` alone derives `active_set` and `feasible_mask`. Views never call each other — the only communication path is *write → `pipeline.onChange` → re-render*.
 
 **I2 — Zero heavy computation in the browser.** No KDE, no normalisation-table scan, no labels argmax, no spatial-index build at runtime. The browser fetches artifacts produced by `data/precompute.py`. If a view needs a statistic that doesn't exist as an artifact, extend `precompute.py`, don't compute it in JS. (Rationale: 324,632 rows; Heinzl responsiveness thresholds — filter/brush responses < 1 s, hover ≤ 0.1 s.)
 
@@ -20,9 +20,9 @@ These are the bug-prevention and performance rules. Any PR violating one is wron
 
 **I5 — One render path per view.** Each view exposes exactly one `renderTX()` that redraws from session state. Interaction handlers mutate state and request a render via `requestAnimationFrame` with a dirty flag (coalesces bursts; keeps brushing ≤ 1 frame behind the mouse). No partial ad-hoc canvas draws outside `renderTX()`.
 
-**I6 — Single source of truth for attribute metadata.** `ATTRIBUTES` in `pipeline.js` (key, exact column name, direction, tier, format) is the only definition; graphify confirms it is already the bridge node between T1/T4/T5/loading — keep it that way. `precompute.py` must mirror it exactly (degree-sign columns via `chr(0xB0)`); add a checksum: precompute writes the attribute list into `manifest.json`, loader asserts equality at startup and hard-fails with a visible error if they diverge.
+**I6 — Single source of truth for attribute metadata.** `ATTRIBUTES` in `datavis.js` (key, exact column name, direction, tier, format) is the only definition; graphify confirms it is already the bridge node between T1/T4/T5/loading — keep it that way. `precompute.py` must mirror it exactly (degree-sign columns via `chr(0xB0)`); add a checksum: precompute writes the attribute list into `manifest.json`, loader asserts equality at startup and hard-fails with a visible error if they diverge.
 
-**I7 — Direction handling in exactly one place.** `LOWER_IS_BETTER` lives in `pipeline.js`; every normalisation, inversion, effective-threshold, feasibility, best-value and spider computation imports it. Duplicated direction tables are the single most likely source of silent correctness bugs in this project.
+**I7 — Direction handling in exactly one place.** `LOWER_IS_BETTER` lives in `datavis.js`; every normalisation, inversion, effective-threshold, feasibility, best-value and spider computation imports it. Duplicated direction tables are the single most likely source of silent correctness bugs in this project.
 
 **I8 — Guard the loading race.** Every `renderTX()` starts with `if (!session.loaded) return;`. T1 modal is the sole component usable before `loaded`.
 
@@ -41,7 +41,7 @@ data/precompute.py  ──(offline, once)──►  artifacts: umap_coords.npy, 
                                               │
 src/parse_worker.js (Web Worker: FETCH ONLY, 9 steps)
                                               │ postMessage(step done / loaded)
-src/pipeline.js  ── session state + onChange bus + derived sets (active_set, feasible_mask)
+src/datavis.js  ── session state + onChange bus + derived sets (active_set, feasible_mask)
      ▲ writes                                 │ notifies
 t1_modal.js   t2_umap.js   t3_violin.js   t4_filter.js   t5_spider.js   t6_table.js
 ```
@@ -88,10 +88,10 @@ Writer table additions: `feasible_mask` — pipeline (derived); `picks_a`/`picks
 
 ## Phase 0 — Contract freeze & repo hygiene
 
-*Files: `docs/pipeline_contract.md`, `src/pipeline.js`, repo tree.*
+*Files: `docs/pipeline_contract.md`, `src/datavis.js`, repo tree.*
 
 1. Rewrite `pipeline_contract.md` to Contract v2 above (picks split, `spatial_grid` replaces `quadtree`, `feasible_mask`, `pick_target`, null-vs-empty `active_set` semantics, typed-array requirement).
-2. In `pipeline.js`: add `picks_a`, `picks_b`, `pick_target`, `feasible_mask` to the session literal; implement `computeFeasibleMask()` (single O(n) pass over primary columns per project, run on `projects` change); keep a temporary `session.picks` getter that throws — so any stale reader fails loudly during migration rather than silently reading undefined.
+2. In `datavis.js`: add `picks_a`, `picks_b`, `pick_target`, `feasible_mask` to the session literal; implement `computeFeasibleMask()` (single O(n) pass over primary columns per project, run on `projects` change); keep a temporary `session.picks` getter that throws — so any stale reader fails loudly during migration rather than silently reading undefined.
 3. Delete or `.gitignore` the duplicated stub trees graphify flagged (`Scrap-Alloy-Screening-Dashboard-main/` nested copy, unused radar/chart-grid stubs). They triple node count, confuse tooling, and risk someone editing the wrong copy.
 4. Add `manifest.json` handling stub in pipeline (I10) — attribute-list checksum assertion.
 5. **[S4]** Generalise the derived-state rule: `stock_alerts` moves out of T5's `picks` handler into the pipeline, computed *before* dependent listeners fire (same mechanism as `feasible_mask`); T1's B-removal writes `projects` before `picks` so no listener sees a stale project list. **[M4]** `recomputeActiveSet` precomputes raw-value bounds per brush instead of calling `normAttr` per row. **[M5]** set `rowCount` before emitting `columns`.
@@ -119,7 +119,7 @@ Writer table additions: `feasible_mask` — pipeline (derived); `picks_a`/`picks
 
 ## Phase 2 — Loading pipeline rewrite (fetch-only worker)
 
-*Files: `src/parse_worker.js`, `src/loading_tab.js`, `src/pipeline.js`.*
+*Files: `src/parse_worker.js`, `src/loading_tab.js`, `src/datavis.js`.*
 
 1. Rewrite worker to the 9 fetch steps of tasks.md (dataset parse → 6 artifact fetches → stock.csv → `loaded`). Parsing the TSV stays in the worker (it's I/O-bound decoding, not analytics) and writes straight into preallocated `Float64Array`s (I3) transferred to the main thread as Transferables — zero copy.
 2. Delete `computeFamilyLabels`, `computeNormTable`, `computeKdeCache`, `computeOneViolin`, `gaussianKernel` etc. from `loading_tab.js` (graphify community 5 shrinks to fetch/progress/table code only). Anything still importing them must break the build — fix those imports to read session fields.
@@ -134,7 +134,7 @@ Writer table additions: `feasible_mask` — pipeline (derived); `picks_a`/`picks
 
 ## Phase 3 — Pick-schema migration + T1 completion
 
-*Files: `src/t1_modal.js`, `src/t4_filter.js`, `src/t5_spider.js`, `src/t6_table.js`, `src/pipeline.js`.*
+*Files: `src/t1_modal.js`, `src/t4_filter.js`, `src/t5_spider.js`, `src/t6_table.js`, `src/datavis.js`.*
 
 1. **Migration:** replace every read/write of `session.picks` with `picks_a`/`picks_b`. T5 routing logic already branches on the project tag — becomes a direct read. Remove the throwing getter once grep is clean.
 2. **T4 header toggle** `[Project A][Project B]` writing `pick_target`; rendered only when `projects.length === 2`; resets to `'A'` when B is removed.
@@ -203,12 +203,12 @@ Writer table additions: `feasible_mask` — pipeline (derived); `picks_a`/`picks
 
 ## Phase 7 — T5/T6 completion
 
-*Files: `src/t5_spider.js`, `src/t6_table.js`, `src/pipeline.js` (one event).*
+*Files: `src/t5_spider.js`, `src/t6_table.js`, `src/datavis.js` (one event).*
 
 0. **[R3] Fix the combined stock check first** — it must be **pairwise** (one alloy from A × one alloy from B, per report §4.6.5), not a sum over all picks per project: the engineer produces one recipe per order, so summing 4 candidate recipes overstates demand and fires false alarms. The combined banner message must **name both alloys**; single vs combined messages must be visually distinct (§4.6.6) **[S5]**. Amber markers then flag only the actual offending pair via the alert's rowIds — `pickHasStockAlert`'s "any scrap this alloy uses" fallback goes away. **[M2]** Derive `cy`/`maxR`/legend positions from canvas size (hardcoded `cy=130, maxR=100` today).
 
 1. **T6 split:** Table A (amber headers, from `picks_a`) + Table B (blue headers, from `picks_b`, hidden in single-project mode). Shared builder parameterised by project — no copy-paste.
-2. Row set: Recipe (6 scrap %) + 17 output properties + 12 chemical wt.% + CALPHAD disclaimer row. **The exact 17-property list must be frozen first** — 14 interactive + 3 supplementary; pick the 3 from the excluded outputs with TA/domain sign-off and record them in `pipeline.js` `T6_ROWS` (single source, I6). *(Currently 14 rows — flag if the "+3" remains unresolved rather than inventing them.)*
+2. Row set: Recipe (6 scrap %) + 17 output properties + 12 chemical wt.% + CALPHAD disclaimer row. **The exact 17-property list must be frozen first** — 14 interactive + 3 supplementary; pick the 3 from the excluded outputs with TA/domain sign-off and record them in `datavis.js` `T6_ROWS` (single source, I6). *(Currently 14 rows — flag if the "+3" remains unresolved rather than inventing them.)*
 3. Per-property formatting via the shared `formatValue()` table (report §4.7.3: YS 0dp, CSC 3dp, TC 1dp, ER sci-2sf, Hardness 1dp, Density 3dp, LinearTE sci-2sf, scrap % 1dp, chem 2dp) — replaces uniform `toFixed(3)`.
 4. Cell coding: red = fails *that project's* effective threshold (respect direction, I7); amber = recipe row of a scrap in an active stock alert (read `stock_alerts`, never recompute, contract rule). **[S3]** T6 subscribes to `projects` and `stock_alerts` in addition to picks — today it only watches `picks`, so it goes stale on T1 re-apply and never sees alert changes. **[S5]** Disclaimer row carries the full §4.7.5 wording: *"Values are CALPHAD predictions. Verify by laboratory measurement before production use."*
 5. Best-value per row within each table: green/bold on the winner, direction-aware (I7); skip rows where <2 picks.
@@ -220,7 +220,7 @@ Writer table additions: `feasible_mask` — pipeline (derived); `picks_a`/`picks
 
 ## Phase 8 — Pipeline wiring completion, reset, end-to-end test
 
-*Files: `src/pipeline.js`, `src/index.html` (Reset button), all views touched only via their public render fns.*
+*Files: `src/datavis.js`, `src/index.html` (Reset button), all views touched only via their public render fns.*
 
 1. Close the remaining wiring gaps: T2 brush → `active_set` → **T3 highlight** (done in Phase 5, verify here) and T4 dim; T4 pick → correct spider → stock alerts → correct table.
 2. **"Reset all"** control: clears `brush_t2`, `brush_t3`, both pick sets, `pick_target`→'A', T4 zooms to intersection bbox, T3 local zooms reset. One function in pipeline, views react through onChange only (I1).

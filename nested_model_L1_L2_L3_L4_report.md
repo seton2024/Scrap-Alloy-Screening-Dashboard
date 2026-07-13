@@ -420,13 +420,13 @@ If the engineer sets a floor outside the dataset range, the constraint line appe
 
 ## Level 4: Algorithm
 
-Level 4 specifies the concrete computational algorithms, data structures, and implementation contracts for every view. Three recurring pitfalls: (1) **performance** — 324,632 rows must never be iterated naively in the render loop; (2) **numerical correctness** — normalization, KDE bandwidth, and UMAP coordinates must be deterministic and reproducible across sessions; (3) **pipeline integrity** — all views share a single `pipeline.js` session state object; writes happen only from T1 (constraint changes) and the loading pipeline.
+Level 4 specifies the concrete computational algorithms, data structures, and implementation contracts for every view. Three recurring pitfalls: (1) **performance** — 324,632 rows must never be iterated naively in the render loop; (2) **numerical correctness** — normalization, KDE bandwidth, and UMAP coordinates must be deterministic and reproducible across sessions; (3) **pipeline integrity** — all views share a single `datavis.js` session state object; writes happen only from T1 (constraint changes) and the loading pipeline.
 
 ---
 
 ### 4.0 Loading Pipeline and Loading Tab
 
-The dashboard opens on a dedicated **Loading tab** — always the first tab visible. The engineer can interact with T1 (project setup modal) immediately; all other views render empty placeholder states until `pipeline.js` reports `state.loaded = true`. All loading steps run in a **Web Worker** to avoid blocking the main thread.
+The dashboard opens on a dedicated **Loading tab** — always the first tab visible. The engineer can interact with T1 (project setup modal) immediately; all other views render empty placeholder states until `datavis.js` reports `state.loaded = true`. All loading steps run in a **Web Worker** to avoid blocking the main thread.
 
 #### 4.0.1 Browser-side loading sequence
 
@@ -440,7 +440,7 @@ The dashboard opens on a dedicated **Loading tab** — always the first tab visi
 | 6 | Compute 1D KDE: 7 properties × 7 families = 49 curves, 200-point grid each | 5–8 s |
 | 7 | Build quadtree over 324,632 UMAP coordinate pairs | ~2 s |
 | 8 | Parse stock CSV → `stock[scrap_family_name] = qty_kg` lookup object | < 1 s |
-| 9 | Write all results to `pipeline.js`; emit `state.loaded = true` | — |
+| 9 | Write all results to `datavis.js`; emit `state.loaded = true` | — |
 
 **Total estimated time: ~13–19 seconds.** The Loading tab displays the current step label in sequence so the engineer can follow progress.
 
@@ -458,7 +458,7 @@ Once `state.loaded = true`, the Loading tab becomes a data-preview table showing
 
 ### 4.1 T1 Session Setup Algorithm
 
-T1 is the **sole writer** to `pipeline.js` session state. All other views are read-only consumers. The modal is accessible at any time, including during loading.
+T1 is the **sole writer** to `datavis.js` session state. All other views are read-only consumers. The modal is accessible at any time, including during loading.
 
 #### 4.1.1 Effective threshold calculation
 
@@ -697,7 +697,7 @@ When the engineer drags a range `[a, b]` on a T3 property axis:
 - The existing violin KDE shape is **never recomputed**
 - A semi-transparent overlay is drawn over the `[a, b]` portion of the existing violin path only, shading the region geometrically
 - The shaded region visually represents the fraction of that family's distribution falling in the selected attribute range — this is a purely geometric operation on the already-rendered shape
-- The brush emits the selected row IDs (from the underlying data) to `pipeline.js` for use by T2 and T4; it does not trigger any KDE update
+- The brush emits the selected row IDs (from the underlying data) to `datavis.js` for use by T2 and T4; it does not trigger any KDE update
 
 **"See more" reveal and brush on hidden columns**
 
@@ -912,7 +912,7 @@ A static lookup table defines display format per property:
 
 #### 4.7.4 Cell color coding
 
-For each output property cell, read alert state from `pipeline.js` (T6 never recomputes alerts):
+For each output property cell, read alert state from `datavis.js` (T6 never recomputes alerts):
 
 - Value fails the effective threshold for that alloy's project → **red cell background**
 - Stock alert active for this alloy AND this row is one of the contributing scrap family recipe rows → **amber cell background** (recipe section only)
@@ -935,7 +935,7 @@ Fixed row at the bottom of the table, full width, spanning all alloy columns:
 | Engineer applies hard constraints (T1/T4) | Filter on 14 quantitative attributes | 3-panel scatter + constraint lines + feasibility zone | T1: effective = floor × (1 ± margin/100); validation rules; re-apply persists all selections; batch_kg stored per project for stock check |
 | Engineer needs top 4 candidates (T4) | Find Top-K, K=4 | Click-to-select; numbered 1–4; badges on all panels | Distance loop, 8px hit radius; contiguous renumber on deselect; rectangle drag zoom: active panel zooms to drag bbox; all other panels independently refit to same row subset on own axes; double-click resets all |
 | Engineer compares candidates (T5) | Compare | Two separate spiders (one per project); stroke style 1–4; red vertex = violation; amber vertex = stock alert; text banner between spiders | 7 axes at 2π/7 rad intervals; spiderNorm with LOWER_IS_BETTER inversion; single stock check: recipe[scrap]×batch_kg > stock[scrap]; combined check: A+B combined > stock[scrap]; two distinct message formats in banner |
-| Engineer needs full record for handoff (T6) | Lookup — in-dashboard table | 17 output attrs + recipe + 12 chemical composition side-by-side; alert flags mirrored from T5 | Column-store row extraction O(n_cols); per-property format lookup table; alert state read from pipeline.js only; CALPHAD disclaimer row |
+| Engineer needs full record for handoff (T6) | Lookup — in-dashboard table | 17 output attrs + recipe + 12 chemical composition side-by-side; alert flags mirrored from T5 | Column-store row extraction O(n_cols); per-property format lookup table; alert state read from datavis.js only; CALPHAD disclaimer row |
 | Loading performance (324K rows) | — | Loading tab with step-by-step progress; no blocking overlay | Web Worker for all steps; column-store typed arrays; ~13–19 s total; pagination table 100 rows/page; hover tint + tooltip for truncated cells |
 | Session setup rarely changes mid-session | — | T1 gated behind legend chip; modal collapses on Apply | Effective threshold formula per direction; validation; re-apply: recompute thresholds + re-render all views; persist T2/T3/T4 state; removal of Project B clears B picks only |
 | Stock availability is an operational constraint | New supplementary data (stock CSV) | Amber marker + text banner between spiders; red for constraint violation, amber for stock | recipe_fraction × batch_kg > stock[scrap] → single alert message; alloy_A × batch_A + alloy_B × batch_B > stock[scrap] → combined alert message naming both alloys and the scrap |
