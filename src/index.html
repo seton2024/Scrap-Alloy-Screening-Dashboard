@@ -126,6 +126,11 @@
                 <span class="view-tag">T2</span>
             </div>
             <div class="view-body">
+                <div class="view-legend" id="legendT2Controls">
+                    <b>Drag</b>: select a region &nbsp;·&nbsp;
+                    <b>Double-click</b>: clear selection &nbsp;·&nbsp;
+                    <b>Hover</b> a bubble: family, count, property medians
+                </div>
                 <div id="legendT2" class="shared-legend"></div>
                 <canvas id="canvasT2" width="1100" height="320"></canvas>
                 <div class="view-placeholder" id="placeholderT2">Waiting for data to load…</div>
@@ -159,6 +164,11 @@
                 <span class="view-tag">T4</span>
             </div>
             <div class="view-body">
+                <div class="view-legend" id="legendT4Controls">
+                    <b>Click</b> a point: pick/remove alloy (max 4 per project) &nbsp;·&nbsp;
+                    <b>Drag</b>: zoom this panel to a region &nbsp;·&nbsp;
+                    <b>Middle-click</b>: reset this panel's zoom
+                </div>
                 <div id="legendT4" class="shared-legend"></div>
 
                 <!-- only shown in dual-project mode; controls which project the next T4 click picks into -->
@@ -171,7 +181,10 @@
                 <div class="t4-row" id="t4DefaultRow">
                     <div class="scatter-panel" id="panelT4-1">
                         <div class="axis-select"><span>YS vs CSC</span></div>
-                        <canvas id="canvasT4-1" width="360" height="240"></canvas>
+                        <div class="canvas-stack">
+                            <canvas id="canvasT4-1" width="360" height="240"></canvas>
+                            <canvas id="canvasT4-1-ov" class="t4-overlay" width="360" height="240"></canvas>
+                        </div>
                     </div>
 
                     <div class="scatter-panel" id="panelT4-2">
@@ -179,7 +192,10 @@
                             <label>X: <select id="t4-2-x"></select></label>
                             <label>Y: <select id="t4-2-y"></select></label>
                         </div>
-                        <canvas id="canvasT4-2" width="360" height="240"></canvas>
+                        <div class="canvas-stack">
+                            <canvas id="canvasT4-2" width="360" height="240"></canvas>
+                            <canvas id="canvasT4-2-ov" class="t4-overlay" width="360" height="240"></canvas>
+                        </div>
                     </div>
 
                     <div class="scatter-panel" id="panelT4-bar">
@@ -206,6 +222,12 @@
                     <span class="view-tag">T5</span>
                 </div>
                 <div class="view-body spider-body">
+                    <div class="view-legend" id="legendT5">
+                        <b>Red vertex</b> (filled = Project A, ring = Project B): fails that property's constraint &nbsp;·&nbsp;
+                        <b>Amber ring</b>: this alloy's recipe would exceed available scrap stock &nbsp;·&nbsp;
+                        &#9888; single alloy exceeds stock &nbsp;·&nbsp;
+                        &#8627; this alloy + its paired A/B alloy together exceed stock
+                    </div>
                     <canvas id="canvasT5-A" width="320" height="320"></canvas>
                     <canvas id="canvasT5-B" width="320" height="320" hidden></canvas>
                     <div id="alertBanner" class="alert-banner"></div> <!-- Alert banner for T5 -->

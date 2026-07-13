@@ -469,6 +469,7 @@ h1, h2, h3, h4 { font-family: var(--font-base); margin: 0 0 var(--space-2); }
 }
 
 .spider-body canvas { width: 320px; height: 320px; max-width: 100%; }
+.spider-body .view-legend { flex-basis: 100%; }
 
 .alert-banner {
     flex-basis: 100%;
@@ -601,3 +602,23 @@ div.tooltip {
 .t4-row        { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 8px; }
 .scatter-panel { display: flex; flex-direction: column; gap: 4px; }
 .axis-select   { font-size: 11px; color: #333; }
+
+/* Perf: each T4 scatter panel stacks a base canvas (the 324K-point cloud,
+   axes, constraint lines — redrawn rarely) under a transparent overlay
+   canvas (picks + live drag rectangle — redrawn on every pick/drag frame).
+   The base sets the box's height via normal flow; the overlay is pinned
+   on top of it and never intercepts the mouse, so events still reach the
+   base canvas underneath unchanged. */
+.canvas-stack { position: relative; }
+.canvas-stack canvas.t4-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    /* .view-body canvas (below) sets an opaque background on every canvas;
+       without overriding it here the overlay's own white background would
+       sit on top of the base canvas and hide the entire point cloud. */
+    background: transparent;
+}
