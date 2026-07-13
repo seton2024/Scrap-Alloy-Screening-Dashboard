@@ -98,34 +98,36 @@ const FAMILY_COLORS_DARK = FAMILY_COLORS.map(function (c) { return darkenHex(c, 
 // as the same shape everywhere (T2 fringe markers, T4 scatter points), not
 // just the same hue. "cross"/"plus" are open paths (no enclosed area), so
 // they only ever stroke — fillColor is ignored for those two shapes.
-function drawFamilyMarker(ctx, shape, px, py, r, fillColor, strokeColor, lineWidth) {
-    ctx.beginPath();
-    let fillable = true;
+// Adds ONE marker's shape to ctx's CURRENT path — no beginPath/fill/stroke,
+// so callers can accumulate many markers into a single path and pay for one
+// fill()/stroke() call instead of one per marker (see t4_filter.js
+// drawScatterBase's per-style-bucket batching for 324K-point clouds).
+// Returns false for the two open shapes (cross/plus) that only ever stroke
+// — callers must skip fill() for those, same as drawFamilyMarker below.
+function traceFamilyMarkerPath(ctx, shape, px, py, r) {
     switch (shape) {
         case "square":
             ctx.rect(px - r, py - r, 2 * r, 2 * r);
-            break;
+            return true;
         case "triangle":
             ctx.moveTo(px, py - r);
             ctx.lineTo(px + r * 0.87, py + r * 0.5);
             ctx.lineTo(px - r * 0.87, py + r * 0.5);
             ctx.closePath();
-            break;
+            return true;
         case "diamond":
             ctx.moveTo(px, py - r); ctx.lineTo(px + r, py);
             ctx.lineTo(px, py + r); ctx.lineTo(px - r, py);
             ctx.closePath();
-            break;
+            return true;
         case "cross":
-            fillable = false;
             ctx.moveTo(px - r, py - r); ctx.lineTo(px + r, py + r);
             ctx.moveTo(px + r, py - r); ctx.lineTo(px - r, py + r);
-            break;
+            return false;
         case "plus":
-            fillable = false;
             ctx.moveTo(px - r, py); ctx.lineTo(px + r, py);
             ctx.moveTo(px, py - r); ctx.lineTo(px, py + r);
-            break;
+            return false;
         case "star": {
             const spikes = 5, outerR = r, innerR = r * 0.45;
             for (let i = 0; i < spikes * 2; i++) {
@@ -135,11 +137,23 @@ function drawFamilyMarker(ctx, shape, px, py, r, fillColor, strokeColor, lineWid
                 if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
             }
             ctx.closePath();
-            break;
+            return true;
         }
         default: // "circle"
+            // moveTo the arc's own start point first: an arc() with no
+            // preceding moveTo draws a connecting line from whatever the
+            // path's current point is, which would splice stray lines
+            // between every batched circle. Moving to the arc's own start
+            // (angle 0) makes that connecting segment zero-length.
+            ctx.moveTo(px + r, py);
             ctx.arc(px, py, r, 0, 2 * Math.PI);
+            return true;
     }
+}
+
+function drawFamilyMarker(ctx, shape, px, py, r, fillColor, strokeColor, lineWidth) {
+    ctx.beginPath();
+    const fillable = traceFamilyMarkerPath(ctx, shape, px, py, r);
     if (fillColor && fillable) { ctx.fillStyle = fillColor; ctx.fill(); }
     if (strokeColor) { ctx.strokeStyle = strokeColor; ctx.lineWidth = lineWidth || 1; ctx.stroke(); }
 }
