@@ -1,8 +1,7 @@
-// t2_umap.js - T2 UMAP overview (2-tier bubble map & spatial-grid brush)
-//
-// Renders session.quadtree (= data/spatial_grid.json, loaded verbatim by
-// loading_tab.js - a uniform grid over the UMAP embedding, every cell carries its member rowIds
+// t2_umap.js - T2 UMAP overview (2-tier bubble map + spatial-grid brush)
 
+// Renders session.quadtree (= data/spatial_grid.json): a grid over the
+// UMAP embedding, each cell holds a list of member rowIds.
 
 const T2_FRINGE_RADIUS = 3.5;
 const T2_MAJOR_MAX_RADIUS = 26;
@@ -10,7 +9,7 @@ const T2_MAJOR_MAX_RADIUS = 26;
 let t2Brush = null;       // { x0,y0,x1,y1 } in canvas px, while dragging
 let t2Dragging = false;
 let t2Patterns = null;
-let t2Tooltip = null;     
+let t2Tooltip = null;
 
 function initT2() {
     pipeline.onChange("loaded", function () {
@@ -33,9 +32,8 @@ function initT2() {
     window.addEventListener("mouseup", t2OnMouseUp);
 }
 
-// Scale: UMAP data space - canvas pixels. We use independently x/y stretch to fill the whole canvas. Bubblr radii are set directly in pixels 
-// Stretching doesn't distort their shape, only how spread out the layout looks
-
+// scale: data space to canvas px. X and Y stretch independently to fill
+// the canvas - bubble radius is set in px, so shape stays round either way
 function t2BuildScale(meta, W, H) {
     const margin = 16;
     const [x0, x1, y0, y1] = meta.extent;
@@ -53,10 +51,8 @@ function t2BuildScale(meta, W, H) {
     };
 }
 
-// 8x8 offscreen canvas per family. So, its identical to T3 buildFamilyPatterns()
-// The same family reads as the same texture on both views.
-// Built once, cached on t2Patterns
-
+// 8x8 texture per family, same code as T3's buildFamilyPatterns(), so a
+// family reads as the same texture on both views. Built once, cached
 function t2BuildPatterns(ctx) {
     return FAMILY_TEXTURES.map(function (texture, famIdx) {
         const s = 8;
@@ -81,16 +77,13 @@ function t2BuildPatterns(ctx) {
     });
 }
 
-// stroke-only marker per FAMILY_MARKERS (pipeline.js's shared
-// drawFamilyMarker), centered at (px,py) with characteristic size r. Used
-// for fringe cells only - majors stay circular filled bubbles per the T2 spec.
+// stroke-only marker (datavis.js's drawFamilyMarker), used for fringe cells only - major cells stay filled round bubbles
 function t2DrawMarker(ctx, shape, px, py, r, color) {
     drawFamilyMarker(ctx, shape, px, py, r, null, color, 1.3);
 }
 
-// One row per family: filled+textured swatch (= major bubble look) next to
-// the fringe marker outline, plus a one-line caption. Built once - the tiny
-// canvases don't need to redraw on every renderT2() call, only exist.
+// 1 row per family: filled swatch (major bubble look) + fringe marker
+// outline + caption. Built once, not redrawn on every renderT2() call
 let t2LegendBuilt = false;
 function t2RenderLegend() {
     if (t2LegendBuilt) return;
@@ -104,9 +97,8 @@ function t2RenderLegend() {
             FAMILY_NAMES[i] +
             '</span>';
     }
-    // plain ASCII only in this string - the page is served as Latin-1, and a
-    // literal non-ASCII char here (curly quote, proportional sign) would
-    // mojibake exactly like the degree-sign issue documented in pipeline.js
+    // ASCII only here - page is served as Latin-1, a non-ASCII char would
+    // break like the degree-sign bug in datavis.js
     html += '<div class="legend-caption">Filled bubble = large cluster, size scales with count &middot; outline shape = small cluster (fixed size) &middot; ' +
             'faded = doesn\'t match the active project, or outside the current selection</div>' +
             '<div class="legend-caption">Bubble border: thin = Project A only &middot; thick = Project B only &middot; ' +
@@ -131,11 +123,8 @@ function t2RenderLegend() {
     });
 }
 
-/* ==================================================================
- * Brush dimming - cells with no member inside the active brush get faded
- * further on top of their feasibility opacity. No active brush -> nothing
- * is dimmed by this (feasibility alone still applies).
- * ================================================================== */
+// brush dimming: cells with no member in the active brush fade further
+// No active brush = nothing dimmed here.
 const T2_UNBRUSHED_DIM = 0.2;
 
 function t2CellInBrush(cell) {
@@ -147,14 +136,8 @@ function t2CellInBrush(cell) {
     return false;
 }
 
-/* ==================================================================
- * Feasibility - checks every effective threshold of a project (not just
- * 2 axes), per FIX R2. Split per-project (not just "any project") so the
- * contour stroke below can tell A-only from B-only from both. The per-row
- * check itself is shared with T4 (pipeline.rowMeetsProject); T2 still needs
- * its own per-project (not just OR'd) cell aggregation, which the shared
- * session.feasible_mask alone can't answer.
- * ================================================================== */
+// feasibility check per project, so the contour stroke can tell A-only
+// from B-only from both. Row check is shared with T4 (pipeline.rowMeetsProject)
 function t2CellMeetsProject(cell, project) {
     for (let k = 0; k < cell.rowIds.length; k++) {
         if (pipeline.rowMeetsProject(project, cell.rowIds[k])) return true;
@@ -162,9 +145,8 @@ function t2CellMeetsProject(cell, project) {
     return false;
 }
 
-// feasible for opacity purposes = matches at least one active project (or
-// no project exists yet, in which case nothing is filtered) - same
-// definition as session.feasible_mask, but aggregated per-cell here
+// feasible for opacity = matches at least 1 active project (or no project
+// exists yet). Same rule as session.feasible_mask, aggregated per cell here
 function t2CellIsFeasible(cell) {
     if (session.projects.length === 0) return true;
     for (let k = 0; k < cell.rowIds.length; k++) {
@@ -173,14 +155,8 @@ function t2CellIsFeasible(cell) {
     return false;
 }
 
-/* Blob contour stroke - which project(s) a major cell satisfies, encoded
- * as stroke weight only (no color, so it never fights the family hue fill).
- * Assumes the path is already set on ctx (beginPath + arc, not yet
- * stroked); strokes it in place 1-3 times without re-declaring the path.
- *   A only   -> 1px solid #111827
- *   B only   -> 3px solid #111827
- *   A and B  -> "railroad track": 5px #111827, 2px white gap, 1px #111827
- *   neither  -> no stroke at all (fill alone carries the 20% opacity cue) */
+// blob contour: which project(s) a cell meets, shown as stroke weight
+// A = 1px, B = 3px, both = 5px + white gap + 1px, neither = no stroke
 const T2_CONTOUR_INK = "#111827";
 
 function t2StrokeContour(ctx, feasibleA, feasibleB) {
@@ -196,9 +172,7 @@ function t2StrokeContour(ctx, feasibleA, feasibleB) {
     // neither -> no stroke
 }
 
-/* ==================================================================
- * Render
- * ================================================================== */
+// main render
 function renderT2() {
     if (!session.loaded || !session.quadtree) return;
 
@@ -222,9 +196,8 @@ function renderT2() {
     quadtree.cells.forEach(function (cell) {
         const [px, py] = geom.toPx(cell.cx, cell.cy);
         const feasible = t2CellIsFeasible(cell);
-        // feasible cells sit at 75% opacity (not 100%) so overlapping bubbles
-        // blend instead of one fully hiding another; infeasible (neither
-        // project) stays faint at 20%, per the blob-contour spec
+        // feasible cells sit at 75% opacity so overlapping bubbles blend;
+        // infeasible cells stay faint at 20%
         let alpha = feasible ? 0.75 : 0.2;
         if (!t2CellInBrush(cell)) alpha *= T2_UNBRUSHED_DIM; // outside the active selection
         ctx.globalAlpha = alpha;
@@ -240,10 +213,8 @@ function renderT2() {
             const feasibleB = session.projects[1] ? t2CellMeetsProject(cell, session.projects[1]) : false;
             t2StrokeContour(ctx, feasibleA, feasibleB);
         } else {
-            // fringe cells have no fill/texture channel - the family's
-            // FAMILY_MARKERS shape (pipeline.js) is their only redundant
-            // channel besides stroke color, so they stay tellable apart in
-            // greyscale/b&w print same as the textured major bubbles
+            // fringe cells have no fill texture - shape (FAMILY_MARKERS) is
+            // their only other channel besides color
             t2DrawMarker(ctx, FAMILY_MARKERS[cell.dominant], px, py, T2_FRINGE_RADIUS, FAMILY_COLORS[cell.dominant]);
         }
     });
@@ -267,10 +238,7 @@ function t2IndexByGridKey(cells) {
     return map;
 }
 
-/* ==================================================================
- * Hover - O(1) cell lookup via the grid, tooltip with lazily-computed
- * median/IQR (only over the hovered cell's own rowIds, only on hover).
- * ================================================================== */
+// hover: O(1) cell lookup via the grid, median/IQR computed on hover only
 function t2CellAt(geom, px, py) {
     const [dx, dy] = geom.pxToData(px, py);
     const gx = Math.floor((dx - geom.x0) / geom.cellW);
@@ -303,9 +271,7 @@ function t2ShowTooltip(cell, clientX, clientY) {
     t2Tooltip.hidden = false;
 }
 
-/* ==================================================================
- * Mouse handling - drag = rectangle brush, plain move = hover tooltip.
- * ================================================================== */
+// mouse handling: drag = rectangle brush, plain move = hover tooltip
 function t2CanvasPos(evt) {
     const rect = evt.currentTarget.getBoundingClientRect();
     return [evt.clientX - rect.left, evt.clientY - rect.top];
@@ -346,9 +312,8 @@ function t2OnMouseUp() {
     const y0px = Math.min(t2Brush.y0, t2Brush.y1), y1px = Math.max(t2Brush.y0, t2Brush.y1);
 
     if (!geom || (x1px - x0px < 4 && y1px - y0px < 4)) {
-        // too small to be a real drag (a plain click) - just drop the
-        // transient rectangle preview, leave any existing selection alone;
-        // deselecting is a deliberate double-click, not an accidental click
+        // too small for a real drag (a plain click): drop the preview
+        // rectangle, keep any existing selection (double-click clears it)
         t2Brush = null;
         renderT2();
         return;
@@ -368,13 +333,13 @@ function t2OnMouseUp() {
         if (fullyInside) {
             cell.rowIds.forEach(function (id) { rowIds.add(id); });
         } else if (session.umap) {
-            // boundary cell: check each member's exact point (cheap - cells are small)
+            // boundary cell: check each member's exact point (cells are small, cheap)
             cell.rowIds.forEach(function (id) {
                 const px = session.umap[id * 2], py = session.umap[id * 2 + 1];
                 if (px >= dx0 && px <= dx1 && py >= dy0 && py <= dy1) rowIds.add(id);
             });
         } else {
-            cell.rowIds.forEach(function (id) { rowIds.add(id); }); // no umap yet - fall back to whole cell
+            cell.rowIds.forEach(function (id) { rowIds.add(id); }); // no umap yet - use whole cell
         }
     });
 

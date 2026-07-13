@@ -151,7 +151,7 @@
 
 - [x] **Table A** — columns populate from Project A's picks (up to 4, plain/black column headers — decided against amber/blue project coloring) <!-- reads via picksForProject(0), same session.picks[].project split T5 already uses, pending the picks_a/picks_b schema migration -->
 - [x] **Table B** — columns populate from Project B's picks (up to 4, plain/black column headers); hidden in single-project mode
-- [x] Each table has 2 sections: Recipe (6 scrap %) · Output properties (14 rows, abbreviation row titles) + CALPHAD disclaimer row <!-- report §4.7.2's separate 12-element Chemical composition block was decided against and removed; report also says 17 output rows (7 primary + 10 secondary) but pipeline.js's shared ATTRIBUTES only defines 14 (7+7) today -->
+- [x] Each table has 2 sections: Recipe (6 scrap %) · Output properties (14 rows, abbreviation row titles) + CALPHAD disclaimer row <!-- report §4.7.2's separate 12-element Chemical composition block was decided against and removed; report also says 17 output rows (7 primary + 10 secondary) but datavis.js's shared ATTRIBUTES only defines 14 (7+7) today -->
 - [x] Per-property formatting: YS 0dp · CSC 3dp · TC 1dp · ER sci 2sf · Hardness 1dp · Density 3dp · LinearTE sci 2sf · scrap % 1dp · chem wt% 2dp <!-- secondary attrs without an explicit spec fall back to formatRangeValue() -->
 - [x] Red cell: output property fails that project's effective threshold
 - [x] Amber cell: recipe row for scrap involved in stock alert
@@ -162,7 +162,7 @@
 
 ---
 
-## Pipeline Wiring (`pipeline.js`)
+## Pipeline Wiring (`datavis.js`)
 
 - [ ] T2 brush → recompute `active_set` → T3 highlights + T4 dims update <!-- active_set recomputes and T4 re-dims, but T3 does NOT subscribe to active_set so it doesn't re-highlight on a T2 brush -->
 - [x] T3 brush → recompute `active_set` → T2 re-dims + T4 updates

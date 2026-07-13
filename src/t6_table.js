@@ -1,14 +1,9 @@
 // t6_table.js - T6 Alloy Characteristics Table (Lookup view)
 
-// One shared table: a single "Attribute" column, then A1-A4 (left side),
-// then B1-B4 (right side, only in dual-project mode) — not two separate
-// tables that would each need their own Attribute column.
-// picksForProject() lives in pipeline.js; violatesConstraint() in t5_spider.js
+// 1 shared table: Attribute column, then A1-A4, then B1-B4 (dual mode only).
+// picksForProject() is in datavis.js, violatesConstraint() in t5_spider.js.
 
-
-// every T6 data cell (recipe % and output-property alike) goes through the
-// shared fmtVal() (pipeline.js) so scientific-notation values are consistent
-// with T1's inputs instead of each cell inventing its own precision rule
+// every cell goes through fmtVal() (datavis.js) for consistent number format
 function formatAttrCell(attr, value) {
     return fmtVal(value);
 }
@@ -41,9 +36,8 @@ function renderT6Tables() {
     applyT6HoverHighlight();
 }
 
-// one table: Attribute | A1..A4 | B1..B4. "Best" is compared separately
-// within each side's own picks (A vs A, B vs B) — the two projects can have
-// completely different requirements, so cross-side comparison isn't meaningful.
+// 1 table: Attribute | A1..A4 | B1..B4. "Best" compares within each side
+// only (A vs A, B vs B) - the 2 projects can have different requirements.
 function renderCombinedTable(picksA, picksB) {
     const slot = document.getElementById("tableT6");
     if (picksA.length === 0 && picksB.length === 0) { slot.innerHTML = ""; return; }

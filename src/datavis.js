@@ -1,4 +1,4 @@
-// pipeline.js - shared cross-view session state + shared config
+// datavis.js - shared cross-view session state + shared config
 
 // T1 (t1_modal.js) is the sole writer of session.projects.
 
@@ -94,16 +94,8 @@ function darkenHex(hex, amount) {
 }
 const FAMILY_COLORS_DARK = FAMILY_COLORS.map(function (c) { return darkenHex(c, 0.35); });
 
-// Shared shape-drawing for FAMILY_MARKERS, built once here so a family reads
-// as the same shape everywhere (T2 fringe markers, T4 scatter points), not
-// just the same hue. "cross"/"plus" are open paths (no enclosed area), so
-// they only ever stroke — fillColor is ignored for those two shapes.
-// Adds ONE marker's shape to ctx's CURRENT path — no beginPath/fill/stroke,
-// so callers can accumulate many markers into a single path and pay for one
-// fill()/stroke() call instead of one per marker (see t4_filter.js
-// drawScatterBase's per-style-bucket batching for 324K-point clouds).
-// Returns false for the two open shapes (cross/plus) that only ever stroke
-// — callers must skip fill() for those, same as drawFamilyMarker below.
+// shared shape for FAMILY_MARKERS. Adds 1 marker to ctx's path (no fill/
+// stroke), so many markers can batch into 1 draw call. False = stroke only.
 function traceFamilyMarkerPath(ctx, shape, px, py, r) {
     switch (shape) {
         case "square":
@@ -140,11 +132,7 @@ function traceFamilyMarkerPath(ctx, shape, px, py, r) {
             return true;
         }
         default: // "circle"
-            // moveTo the arc's own start point first: an arc() with no
-            // preceding moveTo draws a connecting line from whatever the
-            // path's current point is, which would splice stray lines
-            // between every batched circle. Moving to the arc's own start
-            // (angle 0) makes that connecting segment zero-length.
+            // moveTo first, or arc() draws a stray line from the last point
             ctx.moveTo(px + r, py);
             ctx.arc(px, py, r, 0, 2 * Math.PI);
             return true;
@@ -185,9 +173,8 @@ function fmtVal(v) {
         : String(+v.toPrecision(3));
 }
 
-// DERIVED STATE — feasibility + stock alerts, recomputed reactively by
-// pipeline.set() (below) whenever their inputs change, so every view reads
-// the same already-fresh values instead of each computing its own.
+// derived state: feasibility + stock alerts, recomputed by pipeline.set()
+// below. Every view reads the same fresh values instead of its own copy.
 
 // does this row meet EVERY effective threshold of one project (not just
 // whichever two axes a view happens to be plotting)?
@@ -289,19 +276,11 @@ const pipeline = (function () {
         (listeners[key] || []).forEach(function (fn) { fn(session[key]); });
     }
 
-    // assign + notify subscribers in one call. Derived state (feasible_mask,
-    // stock_alerts) is recomputed BEFORE emitting the triggering key, so
-    // every subscriber — including whatever fires off "projects"/"picks"
-    // itself — reads already-fresh derived state instead of each view racing
-    // to compute its own copy in listener-registration order (this is what
-    // caused a transient stale Spider B render when Project B was removed:
-    // T1 used to set "picks" before "projects", and T5 computed stock_alerts
-    // itself inside its own "picks" handler, off the not-yet-updated projects).
+    // assign + notify. Derived state (feasible_mask, stock_alerts) is
+    // recomputed BEFORE emitting, so every listener reads fresh values.
     function set(key, value) {
         session[key] = value;
-        // "loaded" also (re)builds the mask so it's never null once data
-        // exists, even before any project is applied (all rows trivially
-        // feasible with zero active projects — see rowIsFeasible)
+        // "loaded" also builds the mask, so it's never null before a project exists
         if (key === "projects" || (key === "loaded" && value)) recomputeFeasibleMask();
         if (key === "picks" || key === "projects") recomputeStockAlerts();
 
@@ -334,16 +313,8 @@ const pipeline = (function () {
         return n;
     }
 
-    // active_set = rows that pass the T2 brush AND every T3 range brush.
-    // null means "no active filter".
-    //
-    // Perf: brush ranges are stored normalized ([0,1], normAttr's space), so
-    // the naive version calls normAttr() — an ATTR_BY_KEY/norm_table lookup
-    // plus a divide and a higherIsBetter branch — for every (row, brush)
-    // pair, i.e. O(rows x brushes). Instead, invert normAttr ONCE per brush
-    // to get that brush's bounds in raw data units, then every row is just
-    // two plain number comparisons against an already-resolved column
-    // reference — no per-row lookups or branching.
+    // active_set = rows that pass T2 brush AND every T3 brush. Null = no filter.
+    // Perf: invert normAttr once per brush, not once per row.
     function recomputeActiveSet() {
         const brushKeys = Object.keys(session.brush_t3);
         if (brushKeys.length === 0 && !session.brush_t2) {
@@ -380,10 +351,8 @@ const pipeline = (function () {
         emit("active_set");
     }
 
-    // push-or-update one axis's entry in session.axisQueue, keyed by axis
-    // (one entry per axis regardless of who wrote it last). New axes are
-    // appended, so T1's Apply-time entries naturally stay ahead of any axis
-    // a later T3 brush introduces.
+    // push-or-update 1 axis entry in session.axisQueue (1 entry per axis).
+    // New axes append, so T1 entries stay ahead of later T3 brush axes.
     function axisQueueUpsert(axis, source, brushRange) {
         const queue = session.axisQueue.slice();
         const idx = queue.findIndex(function (e) { return e.axis === axis; });
@@ -392,9 +361,8 @@ const pipeline = (function () {
         set("axisQueue", queue);
     }
 
-    // T3 brush-clear (middle-click): if this axis still has an active T1
-    // constraint, fall back to the T1 entry instead of dropping the axis
-    // from the queue entirely; otherwise remove it.
+    // T3 brush-clear: keep the T1 entry if this axis still has a T1
+    // constraint, else remove the axis from the queue.
     function axisQueueClear(axis) {
         const queue = session.axisQueue.slice();
         const idx = queue.findIndex(function (e) { return e.axis === axis; });

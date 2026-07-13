@@ -88,7 +88,7 @@ def compute_family_labels(df):
 
 
 def compute_norm_table(df):
-    #Per-column {min, max} for every one of the 14 attributes. The browser uses these to scale any raw value to [0,1] (mirrors pipeline.js normAttr)."""
+    #Per-column {min, max} for every one of the 14 attributes. The browser uses these to scale any raw value to [0,1] (mirrors datavis.js normAttr)."""
     table = {}
     for _, col, _, _ in ATTRIBUTES:
         v = df[col].values
@@ -99,7 +99,7 @@ def compute_norm_table(df):
 def compute_stock_table():
     #Per-family available stock (kg), the shape T5 reads as session.stock: {familyKey: qty_kg}.
     # Flat STOCK_PLACEHOLDER_KG for every family for now, until real facility stock is integrated.
-    # Keys match pipeline.js SCRAP_FAMILIES[i].key (bare family name, no "[%]" suffix).
+    # Keys match datavis.js SCRAP_FAMILIES[i].key (bare family name, no "[%]" suffix).
     return {col.replace("[%]", ""): STOCK_PLACEHOLDER_KG for col in SCRAP}
 
 

@@ -1,11 +1,7 @@
-//  parse_worker.js - the entire loading pipeline, off the main thread.
+// parse_worker.js - the loading pipeline, off the main thread.
 
-//  Runs in a Web Worker so the progress UI never freezes. Does two kinds of
-//  work: 
-//     (1) parses the user-selected raw dataset file, 
-//     (2) fetches every precomputed file that data/precompute.py already generated.
-
-// Sends one { type:"step", index } message before each stage so the main thread for loading
+// Web Worker so the UI never freezes. Parses the raw file, fetches the
+// files data/precompute.py already made. Sends { type:"step", index } per stage.
 
 
 const DATA_DIR = "../data/";
@@ -73,9 +69,7 @@ async function parseDataset(file) {
     const columnNames = lines[0].split("\t");
     const rowCount = lines.length - 1;
 
-    // a repeated header name would collide in the `columns` dictionary (last
-    // occurrence wins, same as the old d3-based parser) — warn so it's
-    // visible instead of silently losing a column's data
+    // warn on a repeated header name (last one wins, data would be lost silently)
     const columns = {};
     const seenNames = new Set();
     columnNames.forEach(function (name) {

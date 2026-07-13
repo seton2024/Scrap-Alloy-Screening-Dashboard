@@ -1,9 +1,7 @@
-// t1_modal.js — T1 Project Setup
-//
-// T1 - sole writer to session.projects (pipeline.js).
-// Interaction sequence: "+ Add Project" opens the modal
-//      -> Apply computes effective thresholds and collapses the modal into a header chip
-//      -> clicking the chip reopens the modal pre-filled. Max 2 concurrent projects.
+// t1_modal.js - T1 Project Setup
+
+// Sole writer of session.projects. "+ Add Project" opens the modal, Apply
+// computes thresholds and makes a header chip. Max 2 projects.
 
 
 // modal state: true if 2 projects are active, false if 1 project
@@ -60,13 +58,8 @@ function buildProjectFormEl(project, slot) {
     return wrap;
 }
 
-// one <tr> per attribute;
-// secondary-tier CSS calss to hide them 4 "See more".
-// title on  <tr> so tooltip show in the wholw row
-//  A hidden error line sits under
-//
-// The floor field is type="text": 
-// so to get percictent brouser independent values
+// 1 <tr> per attribute. Secondary-tier class hides it until "See more".
+// Floor field is type="text" for a browser-independent value format.
 function attrRowHtml(attr, project) {
     const t = project.thresholds[attr.key] || { floor: null, margin: attr.defaultMargin };
     const rowClasses =
@@ -102,9 +95,7 @@ function buildConstraintTableHtml(project) {
     );
 }
 
-// "See more" / "See less" toggle: flips a class on the form container
-// (no re-render, so nothing typed is lost).
-// CSS handles hiding/showing the secondary rows based on that class.
+// "See more/less": flips a class, no re-render, nothing typed is lost
 let t1SecondaryShown = false;
 
 function toggleT1Secondary() {
@@ -178,9 +169,7 @@ function t1FormatFloorOnBlur(input) {
     }
 }
 
-// effective threshold
-//   higher-is-better: floor * (1 + margin / 100)
-//   lower-is-better:  floor * (1 - margin / 100)
+// effective threshold: floor * (1 +/- margin/100), sign depends on higherIsBetter
 function computeEffective(floor, margin, higherIsBetter) {
     return higherIsBetter ? floor * (1 + margin / 100) : floor * (1 - margin / 100);
 }
@@ -198,18 +187,14 @@ function applyProjects() {
         nameInput.classList.toggle("invalid", !nameValid);
         if (!nameValid) valid = false;
 
-        // format check first: a batch value the browser couldn't parse at all
-        // (e.g. a locale-mismatched decimal) reads as badInput, distinct from
-        // a value it parsed but rejected as non-integer/<=0.
+        // badInput = browser couldn't parse it at all, distinct from parsed-but-rejected
         const batchValid = !batchInput.validity.badInput && isPositiveIntegerString(batchInput.value);
         batchInput.classList.toggle("invalid", !batchValid);
         if (!batchValid) valid = false;
 
         const project = formElToProject(formEl);
 
-        // Thresholds are OPTIONAL
-        //      Only flag a floor as invalid if a value WAS typed but isn't usable.
-        //      Validation reads floorInput.value directly (the raw typed string), to catch every malformed case before any number math happens
+        // thresholds are optional, only flag a floor if a value was typed but is unusable
         ATTRIBUTES.forEach(function (attr) {
             const t = project.thresholds[attr.key];
             const row = formEl.querySelector('.constraint-table tr[data-attr="' + attr.key + '"]');
@@ -259,17 +244,12 @@ function applyProjects() {
 
     if (!valid) return;
 
-    // Re-apply behavior:
-    //      effective thresholds are always recomputed above.
-    //      T2/T3 brushes and T4 picks are untouched here,
-    //      if Project B is being removed, Project B's picks are cleared.
+    // T2/T3 brushes and T4 picks stay untouched, except B's picks clear if B is removed
     const hadProjectB = session.projects.length > 1;
     const hasProjectB = projects.length > 1;
 
-    // "projects" fires BEFORE "picks" — views that key off dual/single mode
-    // (T5's Spider B visibility, stock_alerts) already see the correct
-    // project count by the time any resulting "picks" trim lands, instead of
-    // rendering one transient frame against the stale project count.
+    // "projects" fires before "picks", so dual/single-mode views (T5, stock_alerts)
+    // see the right project count before any picks trim lands
     updateAxisQueueFromProjects(projects);
     pipeline.set("projects", projects);
     if (hadProjectB && !hasProjectB) {
@@ -280,10 +260,8 @@ function applyProjects() {
     closeProjectModal();
 }
 
-// for every axis with an active constraint (in constraint-table row order),
-// push or update a { axis, source: 'T1', brushRange: null } axisQueue entry.
-// T4 listens for "projects" and recomputes each panel's feasible bbox from
-// this (skipping panels the user has manually zoomed).
+// for every axis with an active constraint, push/update an axisQueue entry.
+// T4 uses this to recompute each panel's feasible bbox on "projects".
 function updateAxisQueueFromProjects(projects) {
     ATTRIBUTES.forEach(function (attr) {
         const active = projects.some(function (p) {
